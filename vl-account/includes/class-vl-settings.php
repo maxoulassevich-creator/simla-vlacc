@@ -135,6 +135,21 @@ class VL_Account_Settings {
 			'crm_credit_top'       => 1,        // Строка «начислим баллов» рядом с итогом.
 			'crm_fix_coupon_email' => 1,        // Чинить купоны с ограничением на технический e-mail.
 
+			// Интеграция с плагином избранного WishSuite.
+			'ws_enabled'           => 1,        // Показывать избранное WishSuite в кабинете.
+			'ws_source'            => 'merge',  // merge | wishsuite | vlacc — какой список показывать.
+			'ws_two_way'           => 1,        // Изменения из кабинета возвращать в WishSuite.
+			'ws_merge_guest'       => 1,        // Переносить избранное гостя в аккаунт при входе.
+			'ws_hide_our_button'   => 1,        // Не выводить наше сердечко, если есть сердечко WishSuite.
+			'ws_size_buttons'      => 1,        // Размеры кнопками вместо выпадающего списка.
+			'ws_size_scope'        => 'all',    // all | wishsuite — где заменять список кнопками.
+			'ws_size_attributes'   => 'pa_razmer', // Коды атрибутов через запятую; пусто — все.
+
+			// Подписка на поступление товара (Back In Stock Notifier).
+			'sn_enabled'           => 1,        // Показывать подписки в кабинете.
+			'sn_show_sent'         => 1,        // Показывать и те, по которым письмо уже ушло.
+			'sn_match_email'       => 1,        // Искать подписки ещё и по e-mail покупателя.
+
 			// Прочее.
 			'logging'             => 1,
 			'no_cache'            => 1,

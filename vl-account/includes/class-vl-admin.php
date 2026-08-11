@@ -461,7 +461,165 @@ class VL_Account_Admin {
 			$this->text( 'promo_days', $s, __( 'Срок действия, дней', 'vl-account' ), '', 'number' );
 			?>
 		</table>
+
+		<h2><?php esc_html_e( 'Избранное и плагин WishSuite', 'vl-account' ); ?></h2>
+
+		<?php if ( VL_Account_WishSuite::plugin_active() ) : ?>
+			<table class="widefat striped" style="max-width:900px;margin-bottom:20px">
+				<tbody>
+					<?php foreach ( VL_Account_WishSuite::checks() as $check ) : ?>
+						<tr>
+							<td style="width:32px">
+								<span style="color:<?php echo 'ok' === $check['status'] ? '#2a9d3f' : ( 'warn' === $check['status'] ? '#d98f00' : '#d40000' ); ?>;font-size:18px">●</span>
+							</td>
+							<td style="width:280px"><strong><?php echo esc_html( $check['title'] ); ?></strong></td>
+							<td><?php echo wp_kses_post( $check['text'] ); ?></td>
+						</tr>
+					<?php endforeach; ?>
+				</tbody>
+			</table>
+		<?php else : ?>
+			<p class="description">
+				<?php esc_html_e( 'Плагин WishSuite не активен. Настройки ниже сохранятся, но заработают только после его подключения.', 'vl-account' ); ?>
+			</p>
+		<?php endif; ?>
+
+		<table class="form-table" role="presentation">
+			<?php
+			$this->checkbox(
+				'ws_enabled',
+				$s,
+				__( 'Показывать избранное WishSuite', 'vl-account' ),
+				__( 'Товары, добавленные сердечком WishSuite, попадают в раздел «Избранное» кабинета и в счётчик.', 'vl-account' )
+			);
+			$this->select(
+				'ws_source',
+				$s,
+				__( 'Какой список показывать', 'vl-account' ),
+				array(
+					'merge'     => __( 'Оба списка вместе', 'vl-account' ),
+					'wishsuite' => __( 'Только список WishSuite', 'vl-account' ),
+					'vlacc'     => __( 'Только собственный список кабинета', 'vl-account' ),
+				),
+				__( 'У кабинета есть своё хранилище избранного. «Оба списка вместе» — безопасный вариант при переезде с одного плагина на другой.', 'vl-account' )
+			);
+			$this->checkbox(
+				'ws_two_way',
+				$s,
+				__( 'Возвращать изменения в WishSuite', 'vl-account' ),
+				__( 'Убрали товар в кабинете — сердечко у товара тоже погаснет.', 'vl-account' )
+			);
+			$this->checkbox(
+				'ws_merge_guest',
+				$s,
+				__( 'Переносить избранное гостя', 'vl-account' ),
+				__( 'WishSuite сам не переносит список гостя в аккаунт после входа — товары «пропадают». Кабинет переносит их сам.', 'vl-account' )
+			);
+			$this->checkbox(
+				'ws_hide_our_button',
+				$s,
+				__( 'Не дублировать сердечко', 'vl-account' ),
+				__( 'Пока WishSuite активен, собственная кнопка кабинета в карточке товара не выводится.', 'vl-account' )
+			);
+			?>
+		</table>
+
+		<h2><?php esc_html_e( 'Размеры кнопками', 'vl-account' ); ?></h2>
+
+		<p class="description" style="max-width:900px">
+			<?php esc_html_e( 'Выпадающий список размеров заменяется кнопками: и в карточке товара, и в быстрой корзине избранного. Размеры, которых нет в наличии, остаются видимыми, но неактивными. Если такие кнопки уже делает скрипт в шаблоне темы — его можно удалить, плагин перехватывает существующий контейнер .size-buttons и не даёт задвоения.', 'vl-account' ); ?>
+		</p>
+
+		<table class="form-table" role="presentation">
+			<?php
+			$this->checkbox(
+				'ws_size_buttons',
+				$s,
+				__( 'Включить кнопки размеров', 'vl-account' ),
+				__( 'Работает и без WishSuite.', 'vl-account' )
+			);
+			$this->select(
+				'ws_size_scope',
+				$s,
+				__( 'Где выводить', 'vl-account' ),
+				array(
+					'all'       => __( 'Везде: карточка товара и быстрая корзина', 'vl-account' ),
+					'wishsuite' => __( 'Только в быстрой корзине WishSuite', 'vl-account' ),
+				)
+			);
+			$this->text(
+				'ws_size_attributes',
+				$s,
+				__( 'Атрибуты для кнопок', 'vl-account' ),
+				sprintf(
+					/* translators: %s — список кодов атрибутов магазина. */
+					__( 'Коды атрибутов через запятую. Пусто — кнопками выводятся все атрибуты. Атрибуты этого магазина: %s', 'vl-account' ),
+					'<code>' . esc_html( $this->attribute_slugs() ) . '</code>'
+				)
+			);
+			?>
+		</table>
+
+		<h2><?php esc_html_e( 'Подписка на поступление размера', 'vl-account' ); ?></h2>
+
+		<table class="widefat striped" style="max-width:900px;margin-bottom:20px">
+			<tbody>
+				<?php foreach ( VL_Account_Stock_Notifier::checks() as $check ) : ?>
+					<tr>
+						<td style="width:32px">
+							<span style="color:<?php echo 'ok' === $check['status'] ? '#2a9d3f' : ( 'warn' === $check['status'] ? '#d98f00' : '#d40000' ); ?>;font-size:18px">●</span>
+						</td>
+						<td style="width:280px"><strong><?php echo esc_html( $check['title'] ); ?></strong></td>
+						<td><?php echo wp_kses_post( $check['text'] ); ?></td>
+					</tr>
+				<?php endforeach; ?>
+			</tbody>
+		</table>
+
+		<table class="form-table" role="presentation">
+			<?php
+			$this->checkbox(
+				'sn_enabled',
+				$s,
+				__( 'Показывать подписки в кабинете', 'vl-account' ),
+				__( 'Раздел «Подписки» покажет товары и размеры, поступления которых ждёт покупатель, и даст отписаться.', 'vl-account' )
+			);
+			$this->checkbox(
+				'sn_show_sent',
+				$s,
+				__( 'Показывать отработавшие подписки', 'vl-account' ),
+				__( 'Те, по которым письмо о поступлении уже ушло. Покупателю полезно видеть, что товар вернулся.', 'vl-account' )
+			);
+			$this->checkbox(
+				'sn_match_email',
+				$s,
+				__( 'Искать подписки по e-mail', 'vl-account' ),
+				__( 'Подписаться можно и без входа в кабинет — тогда подписка привязана только к почте. С этой галочкой такие подписки тоже попадут в кабинет.', 'vl-account' )
+			);
+			?>
+		</table>
 		<?php
+	}
+
+	/**
+	 * Коды атрибутов товаров магазина — подсказка в настройках.
+	 *
+	 * @return string
+	 */
+	protected function attribute_slugs() {
+		if ( ! function_exists( 'wc_get_attribute_taxonomies' ) ) {
+			return '—';
+		}
+
+		$slugs = array();
+
+		foreach ( (array) wc_get_attribute_taxonomies() as $attribute ) {
+			if ( ! empty( $attribute->attribute_name ) ) {
+				$slugs[] = 'pa_' . $attribute->attribute_name;
+			}
+		}
+
+		return $slugs ? implode( ', ', $slugs ) : '—';
 	}
 
 	/**
@@ -1122,6 +1280,16 @@ class VL_Account_Admin {
 			$checks = array_merge( $checks, $this->crm_checks() );
 		}
 
+		// Связка с плагином избранного WishSuite.
+		if ( VL_Account_WishSuite::plugin_active() ) {
+			$checks = array_merge( $checks, VL_Account_WishSuite::checks() );
+		}
+
+		// Связка с плагином подписок на поступление.
+		if ( VL_Account_Stock_Notifier::plugin_active() ) {
+			$checks = array_merge( $checks, VL_Account_Stock_Notifier::checks() );
+		}
+
 		// ЧПУ.
 		$checks[] = array(
 			'title'  => __( 'Постоянные ссылки', 'vl-account' ),
@@ -1152,7 +1320,7 @@ class VL_Account_Admin {
 		$checkbox_map = array(
 			'sms'     => array( 'test_mode', 'debug_show_code' ),
 			'forms'   => array( 'passwordless', 'auto_register', 'auth_marketing_box', 'show_telegram', 'gate_cart', 'consent_privacy', 'consent_marketing' ),
-			'account' => array( 'wishlist_on_product' ),
+			'account' => array( 'wishlist_on_product', 'ws_enabled', 'ws_two_way', 'ws_merge_guest', 'ws_hide_our_button', 'ws_size_buttons', 'sn_enabled', 'sn_show_sent', 'sn_match_email' ),
 			'orders'  => array( 'auto_create_account', 'attach_guest_orders', 'match_by_phone', 'email_on_register', 'email_on_autocreate', 'email_confirm' ),
 			'crm'     => array( 'crm_enabled', 'crm_sync_customer', 'crm_sync_consents', 'crm_skip_tech_email', 'crm_order_priority', 'crm_loyalty_ui', 'crm_hide_wc_loyalty', 'crm_credit_top', 'crm_promo_combine', 'crm_promo_hide_loyalty', 'crm_fix_coupon_email' ),
 			'design'  => array(),

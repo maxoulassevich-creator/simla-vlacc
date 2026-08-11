@@ -528,6 +528,37 @@
 		} );
 	}
 
+	/**
+	 * Отписка от уведомления о поступлении размера.
+	 */
+	function removeSubscription( form, button ) {
+		var id = button.dataset.id;
+
+		if ( ! id ) {
+			return;
+		}
+
+		message( form, '' );
+		loading( button, true );
+
+		post( 'subscription_remove', { id: id } ).then( function ( res ) {
+			loading( button, false );
+
+			if ( ! res.success ) {
+				message( form, ( res.data && res.data.message ) || cfg.i18n.network, 'error' );
+				return;
+			}
+
+			var row = document.querySelector( '[data-vl-subscription="' + id + '"]' );
+
+			if ( row && row.parentNode ) {
+				row.parentNode.removeChild( row );
+			}
+
+			message( form, ( res.data && res.data.message ) || '', 'success' );
+		} );
+	}
+
 	/* ------------------------------------------------------------------
 	 * Программа лояльности (RetailCRM)
 	 * ------------------------------------------------------------------ */
@@ -1103,6 +1134,9 @@
 		},
 		'loyalty-charge-cancel': function ( form, button ) {
 			loyaltyChargeCancel( form, button );
+		},
+		'subscription-remove': function ( form, button ) {
+			removeSubscription( form, button );
 		}
 	};
 

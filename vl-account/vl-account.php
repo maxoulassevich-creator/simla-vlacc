@@ -2,8 +2,8 @@
 /**
  * Plugin Name: VL Account — вход, регистрация по SMS и личный кабинет
  * Plugin URI:  https://example.com/
- * Description: Вход и регистрация по номеру телефона через SMS.RU (код в SMS или звонком), восстановление пароля, личный кабинет WooCommerce (заказы, избранное, промокод, бонусы, согласия), автосоздание кабинета при заказе, привязка гостевых заказов. Полная интеграция с плагином Simla.com (RetailCRM): программа лояльности, списание баллов, скидки, синхронизация покупателя. Всё выводится шорткодами.
- * Version:     1.1.0
+ * Description: Вход и регистрация по номеру телефона через SMS.RU (код в SMS или звонком), восстановление пароля, личный кабинет WooCommerce (заказы, избранное, промокод, бонусы, согласия), автосоздание кабинета при заказе, привязка гостевых заказов. Интеграция с плагинами Simla.com (RetailCRM), WishSuite (избранное) и Back In Stock Notifier (подписка на размер). Всё выводится шорткодами.
+ * Version:     1.2.0
  * Requires PHP: 7.4
  * Requires at least: 5.8
  * Author:      —
@@ -17,7 +17,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'VLACC_VERSION', '1.1.0' );
+define( 'VLACC_VERSION', '1.2.0' );
 define( 'VLACC_FILE', __FILE__ );
 define( 'VLACC_PATH', plugin_dir_path( __FILE__ ) );
 define( 'VLACC_URL', plugin_dir_url( __FILE__ ) );
@@ -54,6 +54,12 @@ require_once VLACC_PATH . 'includes/integrations/class-vl-retailcrm-customer.php
 require_once VLACC_PATH . 'includes/integrations/class-vl-retailcrm-loyalty.php';
 require_once VLACC_PATH . 'includes/integrations/class-vl-retailcrm-promo.php';
 require_once VLACC_PATH . 'includes/integrations/class-vl-retailcrm-cart.php';
+
+// Интеграция с плагином избранного «WishSuite».
+require_once VLACC_PATH . 'includes/integrations/class-vl-wishsuite.php';
+
+// Интеграция с плагином подписок на поступление «Back In Stock Notifier».
+require_once VLACC_PATH . 'includes/integrations/class-vl-stock-notifier.php';
 
 /**
  * Главный класс плагина.
@@ -112,6 +118,11 @@ final class VL_Account_Plugin {
 			VL_Account_RetailCRM_Promo::instance();
 			VL_Account_RetailCRM_Cart::instance();
 		}
+
+		// Избранное WishSuite и кнопки размеров: классы сами проверяют,
+		// установлены ли сторонние плагины, — без них просто ничего не делают.
+		VL_Account_WishSuite::instance();
+		VL_Account_Stock_Notifier::instance();
 
 		VL_Account_Auth::instance();
 		VL_Account_Ajax::instance();

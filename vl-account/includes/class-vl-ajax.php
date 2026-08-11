@@ -43,6 +43,7 @@ class VL_Account_Ajax {
 			'reset_password',
 			'check_email',
 			'wishlist_toggle',
+			'wishlist_count',
 		);
 
 		$private = array(
@@ -633,6 +634,18 @@ class VL_Account_Ajax {
 					: __( 'Убрали из избранного.', 'vl-account' ),
 			)
 		);
+	}
+
+	/**
+	 * Сколько товаров в избранном.
+	 *
+	 * Нужен внешним плагинам избранного (например, WishSuite): после их
+	 * собственного AJAX счётчик в шапке должен показать общий список.
+	 */
+	public function handle_wishlist_count() {
+		$this->guard();
+
+		wp_send_json_success( array( 'count' => VL_Account_Wishlist::count() ) );
 	}
 
 	/**

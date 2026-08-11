@@ -6,6 +6,8 @@
 define( 'ABSPATH', '/tmp/wp/' );
 define( 'DAY_IN_SECONDS', 86400 );
 define( 'HOUR_IN_SECONDS', 3600 );
+define( 'COOKIEPATH', '/' );
+define( 'COOKIE_DOMAIN', '' );
 
 $GLOBALS['options']    = array();
 $GLOBALS['transients'] = array();
@@ -35,7 +37,18 @@ function set_transient( $k, $v, $ttl = 0 ) { $GLOBALS['transients'][ $k ] = $v; 
 function delete_transient( $k ) { unset( $GLOBALS['transients'][ $k ] ); return true; }
 function get_user_meta( $id, $key, $single = false ) { return $GLOBALS['usermeta'][ $id ][ $key ] ?? ''; }
 function update_user_meta( $id, $key, $value ) { $GLOBALS['usermeta'][ $id ][ $key ] = $value; return true; }
-function get_user_by( $f, $v ) { return false; }
+$GLOBALS['users'] = array();
+function get_user_by( $f, $v ) {
+	if ( 'id' === strtolower( $f ) ) {
+		return $GLOBALS['users'][ (int) $v ] ?? false;
+	}
+	foreach ( $GLOBALS['users'] as $user ) {
+		if ( isset( $user->user_email ) && strtolower( $user->user_email ) === strtolower( (string) $v ) ) {
+			return $user;
+		}
+	}
+	return false;
+}
 function get_current_user_id() { return 1; }
 function is_user_logged_in() { return true; }
 function wp_parse_args( $args, $defaults = array() ) { return array_merge( $defaults, is_array( $args ) ? $args : array() ); }
@@ -60,7 +73,8 @@ function wp_parse_url( $u, $c = -1 ) { return parse_url( $u, $c ); }
 function date_i18n( $f, $t ) { return gmdate( $f, $t ); }
 function get_permalink( $id ) { return 'https://example.test/?p=' . $id; }
 function get_post_status( $id ) { return 'publish'; }
-function wc_get_product( $id ) { return false; }
+$GLOBALS['products'] = array();
+function wc_get_product( $id ) { return $GLOBALS['products'][ (int) $id ] ?? false; }
 function wc_get_order( $id ) { return false; }
 function is_admin() { return false; }
 function current_user_can( $c, $o = null ) { return false; }
@@ -147,6 +161,66 @@ class WC_Retailcrm_Loyalty {
 	public function confirmSmsVerification( $c, $i ) { return true; }
 	public function calculateDiscountLoyalty( $items, $site, $customer, $bonuses = 0 ) { return WC_Retailcrm_Proxy::$responses['calculateDiscountLoyalty'] ?? 0; }
 	public function processingLoyaltyCoupon( $refresh = false ) { return null; }
+}
+
+
+/* ---- Записи и запросы (для подписок на поступление) ---- */
+
+$GLOBALS['posts']    = array();
+$GLOBALS['postmeta'] = array();
+
+class WP_Post {
+	public $ID;
+	public $post_type;
+	public $post_status;
+	public $post_title;
+	public $post_date;
+	public function __construct( $data = array() ) {
+		foreach ( $data as $key => $value ) { $this->$key = $value; }
+	}
+}
+
+function get_post( $id ) { return $GLOBALS['posts'][ (int) $id ] ?? null; }
+function get_post_meta( $id, $key, $single = false ) { return $GLOBALS['postmeta'][ (int) $id ][ $key ] ?? ''; }
+function update_post_meta( $id, $key, $value ) { $GLOBALS['postmeta'][ (int) $id ][ $key ] = $value; return true; }
+function get_the_title( $id ) { $p = get_post( $id ); return $p ? $p->post_title : ''; }
+function post_type_exists( $type ) { return 'cwginstocknotifier' === $type; }
+function wp_count_posts( $type ) { return (object) array( 'cwg_subscribed' => 1 ); }
+function wp_update_post( $args ) {
+	$post = get_post( $args['ID'] );
+	if ( $post ) { $post->post_status = $args['post_status']; }
+	return $args['ID'];
+}
+
+/**
+ * Заглушка WP_Query: фильтрует $GLOBALS['posts'] по типу, статусу и meta_query.
+ */
+class WP_Query {
+	public $posts = array();
+	public function __construct( $args = array() ) {
+		$statuses = (array) ( $args['post_status'] ?? array() );
+		foreach ( $GLOBALS['posts'] as $post ) {
+			if ( $post->post_type !== $args['post_type'] ) { continue; }
+			if ( $statuses && ! in_array( $post->post_status, $statuses, true ) ) { continue; }
+			if ( ! empty( $args['meta_query'] ) && ! $this->match( $post->ID, $args['meta_query'] ) ) { continue; }
+			$this->posts[] = $post;
+		}
+	}
+	private function match( $id, $query ) {
+		$relation = strtoupper( $query['relation'] ?? 'AND' );
+		unset( $query['relation'] );
+		$results = array();
+		foreach ( $query as $clause ) {
+			$value   = get_post_meta( $id, $clause['key'], true );
+			$compare = $clause['compare'] ?? '=';
+			if ( 'IN' === $compare ) {
+				$results[] = in_array( strtolower( (string) $value ), array_map( 'strtolower', (array) $clause['value'] ), true );
+			} else {
+				$results[] = (string) $value === (string) $clause['value'];
+			}
+		}
+		return 'OR' === $relation ? in_array( true, $results, true ) : ! in_array( false, $results, true );
+	}
 }
 
 /* ---- Файлы плагина ---- */

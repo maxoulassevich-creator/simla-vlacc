@@ -1663,3 +1663,75 @@ body.vl-drawer-open {
 .vl-loyalty-cart__terms .vl-link {
 	margin-left: 0;
 }
+
+/* --------------------------------------------------
+   Размеры кнопками в быстрой корзине WishSuite
+   -------------------------------------------------- */
+
+.vl-size-buttons {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin: 6px 0 2px;
+}
+
+.vl-size-buttons .vl-size-button {
+	min-width: 44px;
+	min-height: 38px;
+	padding: 8px 12px;
+	border: 1px solid #bdbdbd;
+	border-radius: 0;
+	background: #fff;
+	color: #333;
+	font: inherit;
+	font-size: 13px;
+	line-height: 1;
+	text-align: center;
+	cursor: pointer;
+	transition: border-color 0.15s, background-color 0.15s, color 0.15s;
+}
+
+.vl-size-buttons .vl-size-button:hover:not(:disabled) {
+	border-color: #333;
+}
+
+.vl-size-buttons .vl-size-button.is-active {
+	border-color: #333;
+	background: #333;
+	color: #fff;
+}
+
+.vl-size-buttons .vl-size-button.is-disabled,
+.vl-size-buttons .vl-size-button:disabled {
+	color: #bdbdbd;
+	border-color: #ececec;
+	cursor: not-allowed;
+	position: relative;
+	overflow: hidden;
+}
+
+/* Перечёркиваем недоступный размер — так понятнее, чем просто серый. */
+.vl-size-buttons .vl-size-button.is-disabled::after {
+	content: "";
+	position: absolute;
+	left: -10%;
+	top: 50%;
+	width: 120%;
+	height: 1px;
+	background: #e4e4e4;
+	transform: rotate(-18deg);
+}
+
+/* Подписки на поступление */
+
+.vl-subs__status {
+	color: var(--vl-muted);
+}
+
+.vl-table--subs td:last-child {
+	white-space: nowrap;
+}
+
+.vl-table--subs td:last-child .vl-link {
+	margin-left: 10px;
+}

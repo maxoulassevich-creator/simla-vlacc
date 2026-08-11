@@ -24,23 +24,29 @@ $vl_subs = apply_filters( 'vlacc_user_subscriptions', array(), $user_id );
 	<h3 class="vl-subtitle"><?php esc_html_e( 'Подписка на размеры', 'vl-account' ); ?></h3>
 
 	<?php if ( $vl_subs ) : ?>
-		<div class="vl-table-wrap">
-			<table class="vl-table">
+		<div class="vl-form__messages" data-vl-messages></div>
+
+		<div class="vl-table-wrap" data-vl-form="subscriptions">
+			<table class="vl-table vl-table--subs">
 				<thead>
 					<tr>
 						<th><?php esc_html_e( 'Товар', 'vl-account' ); ?></th>
 						<th><?php esc_html_e( 'Размер', 'vl-account' ); ?></th>
 						<th><?php esc_html_e( 'Дата', 'vl-account' ); ?></th>
+						<th><?php esc_html_e( 'Статус', 'vl-account' ); ?></th>
 					</tr>
 				</thead>
 				<tbody>
 					<?php foreach ( $vl_subs as $vl_sub ) : ?>
-						<tr>
+						<?php
+						$vl_title  = isset( $vl_sub['title'] ) ? $vl_sub['title'] : '';
+						$vl_pid    = isset( $vl_sub['product_id'] ) ? (int) $vl_sub['product_id'] : 0;
+						$vl_sub_id = isset( $vl_sub['id'] ) ? (int) $vl_sub['id'] : 0;
+						$vl_stock  = ! empty( $vl_sub['in_stock'] );
+						?>
+						<tr<?php echo $vl_sub_id ? ' data-vl-subscription="' . esc_attr( $vl_sub_id ) . '"' : ''; ?>>
 							<td data-label="<?php esc_attr_e( 'Товар', 'vl-account' ); ?>">
 								<?php
-								$vl_title = isset( $vl_sub['title'] ) ? $vl_sub['title'] : '';
-								$vl_pid   = isset( $vl_sub['product_id'] ) ? (int) $vl_sub['product_id'] : 0;
-
 								if ( $vl_pid && get_permalink( $vl_pid ) ) {
 									printf( '<a href="%s">%s</a>', esc_url( get_permalink( $vl_pid ) ), esc_html( $vl_title ? $vl_title : get_the_title( $vl_pid ) ) );
 								} else {
@@ -50,6 +56,19 @@ $vl_subs = apply_filters( 'vlacc_user_subscriptions', array(), $user_id );
 							</td>
 							<td data-label="<?php esc_attr_e( 'Размер', 'vl-account' ); ?>"><?php echo esc_html( isset( $vl_sub['size'] ) ? $vl_sub['size'] : '' ); ?></td>
 							<td data-label="<?php esc_attr_e( 'Дата', 'vl-account' ); ?>"><?php echo esc_html( isset( $vl_sub['date'] ) ? date_i18n( 'd.m.Y', strtotime( $vl_sub['date'] ) ) : '' ); ?></td>
+							<td data-label="<?php esc_attr_e( 'Статус', 'vl-account' ); ?>">
+								<?php if ( $vl_stock ) : ?>
+									<span class="vl-positive"><?php esc_html_e( 'снова в наличии', 'vl-account' ); ?></span>
+								<?php elseif ( ! empty( $vl_sub['status_label'] ) ) : ?>
+									<span class="vl-subs__status"><?php echo esc_html( $vl_sub['status_label'] ); ?></span>
+								<?php endif; ?>
+
+								<?php if ( $vl_sub_id ) : ?>
+									<button type="button" class="vl-link vl-link--muted" data-vl-action="subscription-remove" data-id="<?php echo esc_attr( $vl_sub_id ); ?>">
+										<?php esc_html_e( 'отписаться', 'vl-account' ); ?>
+									</button>
+								<?php endif; ?>
+							</td>
 						</tr>
 					<?php endforeach; ?>
 				</tbody>

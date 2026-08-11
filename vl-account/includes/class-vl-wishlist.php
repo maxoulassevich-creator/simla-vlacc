@@ -71,15 +71,29 @@ class VL_Account_Wishlist {
 	public static function get_items( $user_id = 0 ) {
 		$user_id = $user_id ? (int) $user_id : get_current_user_id();
 
+		return apply_filters( 'vlacc_wishlist_items', self::raw_items( $user_id ), $user_id );
+	}
+
+	/**
+	 * Список только из нашего хранилища, без сторонних плагинов.
+	 *
+	 * Сохранять нужно именно его: если записать объединённый список,
+	 * товары стороннего плагина осядут у нас копией и не исчезнут из кабинета,
+	 * когда покупатель уберёт их там.
+	 *
+	 * @param int $user_id Пользователь (0 — текущий/гость).
+	 * @return array
+	 */
+	public static function raw_items( $user_id = 0 ) {
+		$user_id = $user_id ? (int) $user_id : get_current_user_id();
+
 		if ( $user_id ) {
 			$items = get_user_meta( $user_id, self::META, true );
 		} else {
 			$items = isset( $_COOKIE[ self::COOKIE ] ) ? explode( ',', sanitize_text_field( wp_unslash( $_COOKIE[ self::COOKIE ] ) ) ) : array();
 		}
 
-		$items = is_array( $items ) ? array_values( array_unique( array_filter( array_map( 'absint', $items ) ) ) ) : array();
-
-		return apply_filters( 'vlacc_wishlist_items', $items, $user_id );
+		return is_array( $items ) ? array_values( array_unique( array_filter( array_map( 'absint', $items ) ) ) ) : array();
 	}
 
 	/**
@@ -130,10 +144,13 @@ class VL_Account_Wishlist {
 	 * @return bool Итоговое состояние: true — в избранном.
 	 */
 	public static function toggle( $product_id ) {
-		$items = self::get_items();
-		$id    = (int) $product_id;
+		$id = (int) $product_id;
 
-		if ( in_array( $id, $items, true ) ) {
+		// Решение принимаем по общему списку (с учётом стороннего плагина),
+		// а сохраняем только своё хранилище.
+		$items = self::raw_items();
+
+		if ( self::has( $id ) ) {
 			$items = array_diff( $items, array( $id ) );
 			$state = false;
 		} else {
@@ -154,8 +171,10 @@ class VL_Account_Wishlist {
 	 * @param int $product_id Товар.
 	 */
 	public static function remove( $product_id ) {
-		$items = array_diff( self::get_items(), array( (int) $product_id ) );
+		$items = array_diff( self::raw_items(), array( (int) $product_id ) );
 		self::save( $items );
+
+		do_action( 'vlacc_wishlist_updated', (int) $product_id, false, get_current_user_id() );
 	}
 
 	/**
@@ -173,26 +192,25 @@ class VL_Account_Wishlist {
 	 * @param int $user_id Пользователь.
 	 */
 	public static function merge_guest_wishlist( $user_id ) {
-		if ( empty( $_COOKIE[ self::COOKIE ] ) ) {
-			return;
+		$guest = empty( $_COOKIE[ self::COOKIE ] )
+			? array()
+			: array_filter( array_map( 'absint', explode( ',', sanitize_text_field( wp_unslash( $_COOKIE[ self::COOKIE ] ) ) ) ) );
+
+		if ( $guest ) {
+			$user_items = get_user_meta( $user_id, self::META, true );
+			$user_items = is_array( $user_items ) ? $user_items : array();
+
+			update_user_meta( $user_id, self::META, array_values( array_unique( array_merge( $user_items, $guest ) ) ) );
+
+			if ( ! headers_sent() ) {
+				setcookie( self::COOKIE, '', time() - 3600, COOKIEPATH ? COOKIEPATH : '/', COOKIE_DOMAIN );
+			}
+
+			unset( $_COOKIE[ self::COOKIE ] );
 		}
 
-		$guest = array_filter( array_map( 'absint', explode( ',', sanitize_text_field( wp_unslash( $_COOKIE[ self::COOKIE ] ) ) ) ) );
-
-		if ( ! $guest ) {
-			return;
-		}
-
-		$user_items = get_user_meta( $user_id, self::META, true );
-		$user_items = is_array( $user_items ) ? $user_items : array();
-
-		update_user_meta( $user_id, self::META, array_values( array_unique( array_merge( $user_items, $guest ) ) ) );
-
-		if ( ! headers_sent() ) {
-			setcookie( self::COOKIE, '', time() - 3600, COOKIEPATH ? COOKIEPATH : '/', COOKIE_DOMAIN );
-		}
-
-		unset( $_COOKIE[ self::COOKIE ] );
+		// Сторонние плагины избранного переносят список гостя на этом же событии.
+		do_action( 'vlacc_wishlist_merged', $user_id, $guest );
 	}
 
 	/**
