@@ -1,0 +1,1867 @@
+<?php
+
+if (!defined('ABSPATH')) {
+    exit;
+}
+
+if (!class_exists('WC_Retailcrm_Base')) {
+    if (!class_exists('WC_Retailcrm_Abstracts_Settings')) {
+        include_once(WC_Integration_Retailcrm::checkCustomFile('include/abstracts/class-wc-retailcrm-abstracts-settings.php'));
+    }
+
+    /**
+     * PHP version 7.0
+     *
+     * Class WC_Retailcrm_Base - Main settings plugin.
+     *
+     * @category Integration
+     * @author   RetailCRM <integration@retailcrm.ru>
+     * @license  http://retailcrm.ru Proprietary
+     * @link     http://retailcrm.ru
+     * @see      http://help.retailcrm.ru
+     */
+    class WC_Retailcrm_Base extends WC_Retailcrm_Abstracts_Settings
+    {
+        const ASSETS_DIR = '/woo-retailcrm/assets';
+        const TRACKER_CART_ID_SESSION_KEY = 'retailcrm_tracker_cart_id';
+
+        /** @var WC_Retailcrm_Proxy|WC_Retailcrm_Client_V5|bool */
+        protected $apiClient;
+
+        /** @var \WC_Retailcrm_Customers */
+        protected $customers;
+
+        /** @var \WC_Retailcrm_Orders */
+        protected $orders;
+
+        /** @var WC_Retailcrm_Uploader */
+        protected $uploader;
+
+        /** @var WC_Retailcrm_Cart */
+        protected $cart;
+
+        /** @var WC_Retailcrm_Loyalty */
+        protected $loyalty;
+
+        /** @var array */
+        protected $updatedOrderId = [];
+
+        /** @var array */
+        protected $createdOrderId = [];
+
+        /**
+         * Init and hook in the integration.
+         *
+         * @param WC_Retailcrm_Proxy|WC_Retailcrm_Client_V5|bool $retailcrm (default = false)
+         */
+        public function __construct($retailcrm = false)
+        {
+            parent::__construct();
+
+            if (!class_exists('WC_Retailcrm_Proxy')) {
+                include_once(WC_Integration_Retailcrm::checkCustomFile('include/api/class-wc-retailcrm-proxy.php'));
+            }
+
+            if ($retailcrm === false) {
+                $this->apiClient = $this->getApiClient();
+            } else {
+                $this->apiClient = $retailcrm;
+                $this->init_settings_fields();
+            }
+
+            $this->customers = new WC_Retailcrm_Customers(
+                $this->apiClient,
+                $this->settings,
+                new WC_Retailcrm_Customer_Address()
+            );
+
+            $this->orders = new WC_Retailcrm_Orders(
+                $this->apiClient,
+                $this->settings,
+                new WC_Retailcrm_Order_Item($this->settings),
+                new WC_Retailcrm_Order_Address(),
+                $this->customers,
+                new WC_Retailcrm_Order($this->settings),
+                new WC_Retailcrm_Order_Payment($this->settings)
+            );
+
+            $this->uploader = new WC_Retailcrm_Uploader($this->apiClient, $this->orders, $this->customers);
+
+            // Actions.
+            add_action('woocommerce_update_options_integration_' .  $this->id, [$this, 'process_admin_options']);
+            add_filter('woocommerce_settings_api_sanitized_fields_' . $this->id, [$this, 'api_sanitized']);
+            add_action('admin_bar_menu', [$this, 'add_retailcrm_button'], 100);
+            add_action('woocommerce_checkout_order_processed', [$this, 'retailcrm_process_order'], 10, 1);
+            add_action('woocommerce_store_api_checkout_order_processed', [$this, 'retailcrm_process_order'], 10, 1);
+            add_action('retailcrm_history', [$this, 'retailcrm_history_get']);
+            add_action('retailcrm_icml', [$this, 'generate_icml']);
+            add_action('retailcrm_inventories', [$this, 'load_stocks']);
+            add_action('wp_ajax_retailcrm_do_upload', [$this, 'upload_to_crm']);
+            add_action('wp_ajax_retailcrm_cron_info', [$this, 'get_cron_info'], 99);
+            add_action('wp_ajax_retailcrm_set_meta_fields', [$this, 'set_meta_fields'], 99);
+            add_action('wp_ajax_retailcrm_content_upload', [$this, 'count_upload_data'], 99);
+            add_action('wp_ajax_retailcrm_generate_icml', [$this, 'generate_icml']);
+            add_action('wp_ajax_retailcrm_upload_selected_orders', [$this, 'upload_selected_orders']);
+            add_action('wp_ajax_retailcrm_clear_cron_tasks', [$this, 'clear_cron_tasks']);
+            add_action('wp_ajax_retailcrm_get_status_coupon', [$this, 'get_status_coupon']);
+            add_action('admin_print_footer_scripts', [$this, 'ajax_generate_icml'], 99);
+            add_action('woocommerce_update_customer', [$this, 'update_customer'], 10, 1);
+            add_action('user_register', [$this, 'create_customer'], 10, 2);
+            add_action('profile_update', [$this, 'update_customer'], 10, 2);
+            add_action('wp_print_scripts', [$this, 'initialize_analytics'], 98);
+            add_action('wp_print_scripts', [$this, 'initialize_daemon_collector'], 99);
+            add_action('wp_print_scripts', [$this, 'initialize_online_assistant'], 101);
+            add_action('wp_enqueue_scripts', [$this, 'include_whatsapp_icon_style'], 101);
+            add_action('wp_enqueue_scripts', [$this, 'include_js_script_for_tracker'], 101);
+            add_action('wp_enqueue_scripts', [$this, 'enqueue_online_consultant_script_for_user'], 99);
+            add_action('wp_print_footer_scripts', [$this, 'initialize_whatsapp'], 101);
+            add_action('wp_print_footer_scripts', [$this, 'send_analytics'], 99);
+            add_action('admin_enqueue_scripts', [$this, 'include_files_for_admin'], 101);
+            add_action('woocommerce_new_order', [$this, 'fill_array_create_orders'], 11, 1);
+            add_action('shutdown', [$this, 'create_order'], -2);
+            add_action('wp_console_upload', [$this, 'console_upload'], 99, 2);
+            add_action('wp_footer', [$this, 'add_retailcrm_tracking_script'], 102);
+
+            //Tracker
+            add_action('wp_ajax_retailcrm_get_cart_items_for_tracker', [$this, 'get_cart_items_for_tracker'], 99);
+            add_action('wp_ajax_retailcrm_get_customer_info_for_tracker', [$this, 'get_customer_info_for_tracker'], 99);
+            add_action('wp_ajax_nopriv_retailcrm_get_cart_items_for_tracker', [$this, 'get_cart_items_for_tracker'], 99);
+            add_action('wp_ajax_nopriv_retailcrm_get_customer_info_for_tracker', [$this, 'get_customer_info_for_tracker'], 99);
+
+            if (
+                !$this->get_option('deactivate_update_order')
+                || $this->get_option('deactivate_update_order') == static::NO
+            ) {
+                add_action('woocommerce_update_order', [$this, 'fill_array_update_orders'], 11, 1);
+                add_action('shutdown', [$this, 'update_order'], -1);
+                add_action('woocommerce_saved_order_items', [$this, 'update_order_items'], 10, 1);
+            }
+
+            if (isLoyaltyActivate($this->settings)) {
+                add_action('wp_ajax_retailcrm_register_customer_loyalty', [$this, 'register_customer_loyalty']);
+                add_action('wp_ajax_retailcrm_activate_customer_loyalty', [$this, 'activate_customer_loyalty']);
+                add_action('wp_ajax_retailcrm_confirm_sms_customer_loyalty', [$this, 'confirm_sms_customer_loyalty']);
+                add_action('init', [$this, 'add_loyalty_endpoint'], 11, 1);
+                add_action('woocommerce_account_menu_items', [$this, 'add_loyalty_item'], 11, 1);
+                add_action('woocommerce_account_loyalty_endpoint', [$this, 'show_loyalty'], 11, 1);
+                add_action('wp_ajax_create_loyalty_coupon', [WC_Retailcrm_Loyalty::class, 'create_loyalty_coupon'], 104);
+                add_action('wp_ajax_apply_coupon_to_cart', [WC_Retailcrm_Loyalty::class, 'apply_coupon_to_cart'], 105);
+
+                // Add coupon hooks for loyalty program
+                add_action('woocommerce_cart_coupon', [$this, 'coupon_info'], 11, 1);
+                // Apply the loyalty coupon on the block-based cart, where woocommerce_cart_coupon is not fired
+                add_action('woocommerce_add_to_cart', [$this, 'apply_loyalty_coupon'], 12, 1);
+                //Remove coupons when cart changes
+                add_action('woocommerce_add_to_cart', [$this, 'refresh_loyalty_coupon'], 11, 1);
+                add_action('woocommerce_after_cart_item_quantity_update', [$this, 'refresh_loyalty_coupon'], 11, 1);
+                add_action('woocommerce_cart_item_removed', [$this, 'refresh_loyalty_coupon'], 11, 1);
+                add_action('woocommerce_before_cart_empted', [$this, 'clear_loyalty_coupon'], 11, 1);
+                add_action('woocommerce_removed_coupon', [$this, 'remove_coupon'], 11, 1);
+                add_action('woocommerce_applied_coupon', [$this, 'apply_coupon'], 11, 1);
+                add_action('woocommerce_review_order_before_payment', [$this, 'reviewCreditBonus'], 11, 1);
+                add_action('wp_trash_post', [$this, 'trash_order_action'], 10, 1);
+                add_action('retailcrm_loyalty_upload_price', [$this, 'upload_loyalty_price']);
+                add_action('admin_print_footer_scripts', [$this, 'ajax_upload_loyalty_price'], 99);
+                add_action('wp_ajax_retailcrm_upload_loyalty_price', [$this, 'upload_loyalty_price']);
+            }
+
+            // Subscribed hooks
+            add_action('register_form', [$this, 'checkout_form'], 99);
+            add_action('woocommerce_register_form', [$this, 'checkout_form'], 99);
+
+            if (get_option('woocommerce_enable_signup_and_login_from_checkout') === static::YES) {
+                add_action(
+                    'woocommerce_before_checkout_registration_form',
+                    [$this, 'checkout_form'],
+                    99
+                );
+            }
+
+            if ($this->get_option('abandoned_carts_enabled') === static::YES) {
+                $this->cart = new WC_Retailcrm_Cart($this->apiClient, $this->settings);
+
+                add_action('woocommerce_add_to_cart', [$this, 'set_cart']);
+                add_action('woocommerce_after_cart_item_quantity_update', [$this, 'set_cart']);
+                add_action('woocommerce_cart_item_removed', [$this, 'set_cart']);
+                add_action('woocommerce_cart_emptied', [$this, 'clear_cart']);
+            }
+
+            $this->loyalty = new WC_Retailcrm_Loyalty($this->apiClient, $this->settings);
+
+            // Deactivate hook
+            add_action('retailcrm_deactivate', [$this, 'deactivate']);
+
+            //Activation configured module
+            $this->activateModule();
+        }
+
+        function get_cart_items_for_tracker()
+        {
+            wp_send_json_success($this->get_cart_data_for_tracker());
+        }
+
+        /**
+         * Get the current cart data for the JS tracker.
+         *
+         * @return array
+         */
+        public function get_cart_data_for_tracker()
+        {
+            $cartItems = [];
+
+            foreach (WC()->cart->get_cart() as $item) {
+                $product = $item['data'];
+
+                $cartItems[] = [
+                    'id' => (string) $product->get_id(),
+                    'sku' => $product->get_sku(),
+                    'price' => wc_get_price_including_tax($product),
+                    'quantity' => $item['quantity'],
+                ];
+            }
+
+            $cartId = null;
+            $session = WC()->session;
+
+            if (empty($cartItems)) {
+                if ($session) {
+                    $session->__unset(self::TRACKER_CART_ID_SESSION_KEY);
+                }
+            } elseif ($session) {
+                $cartId = $session->get(self::TRACKER_CART_ID_SESSION_KEY);
+
+                if (empty($cartId)) {
+                    $cartId = wp_generate_uuid4();
+                    $session->set(self::TRACKER_CART_ID_SESSION_KEY, $cartId);
+                }
+            }
+
+            return [
+                'cart_id' => $cartId,
+                'items' => $cartItems,
+            ];
+        }
+
+        function get_customer_info_for_tracker()
+        {
+            if (is_user_logged_in()) {
+                $user = wp_get_current_user();
+
+                // TODO: В будущем можно получить больше данных.
+                wp_send_json_success(['email' => $user->user_email, 'externalId' => $user->ID]);
+            }
+        }
+
+        public function console_upload($entity, $page = 0)
+        {
+            $this->uploader->uploadConsole($entity, $page);
+        }
+        /**
+         * Init settings fields
+         */
+        public function init_settings_fields()
+        {
+            WC_Retailcrm_Logger::setHook(current_action());
+            $this->init_form_fields();
+            $this->init_settings();
+        }
+
+        /**
+         * @param $settings
+         *
+         * @return array
+         */
+        public function api_sanitized($settings)
+        {
+            WC_Retailcrm_Logger::setHook(current_action());
+            WC_Retailcrm_Logger::info(
+                __METHOD__,
+                'Module settings',
+                ['settings' => $settings]
+            );
+            $isLoyaltyUploadPrice = false;
+
+            if (
+                isset($settings['icml'], $settings['loyalty'])
+                && $settings['icml'] === static::YES
+                && $settings['loyalty'] === static::YES
+            ) {
+                $isLoyaltyUploadPrice = true;
+            }
+
+            $timeInterval = apply_filters(
+                'retailcrm_cron_schedules',
+                [
+                    'icml' => 'three_hours',
+                    'history' => 'five_minutes',
+                    'inventories' => 'fiveteen_minutes',
+                    'loyalty_upload_price' => 'four_hours'
+                ]
+            );
+
+            if (isset($settings['sync']) && $settings['sync'] == static::YES) {
+                if (!wp_next_scheduled('retailcrm_inventories')) {
+                    wp_schedule_event(time(), $timeInterval['inventories'], 'retailcrm_inventories');
+                }
+            } elseif (isset($settings['sync']) && $settings['sync'] == static::NO) {
+                wp_clear_scheduled_hook('retailcrm_inventories');
+            }
+
+            if (isset($settings['history']) && $settings['history'] == static::YES) {
+                if (!wp_next_scheduled('retailcrm_history')) {
+                    wp_schedule_event(time(), $timeInterval['history'], 'retailcrm_history');
+                }
+            } elseif (isset($settings['history']) && $settings['history'] == static::NO) {
+                wp_clear_scheduled_hook('retailcrm_history');
+            }
+
+            if (isset($settings['icml']) && $settings['icml'] == static::YES) {
+                if (!wp_next_scheduled('retailcrm_icml')) {
+                    wp_schedule_event(time(), $timeInterval['icml'], 'retailcrm_icml');
+                }
+            } elseif (isset($settings['icml']) && $settings['icml'] == static::NO) {
+                wp_clear_scheduled_hook('retailcrm_icml');
+            }
+
+            if ($isLoyaltyUploadPrice && !wp_next_scheduled('retailcrm_loyalty_upload_price')) {
+                wp_schedule_event(time(), $timeInterval['loyalty_upload_price'], 'retailcrm_loyalty_upload_price');
+            } elseif (!$isLoyaltyUploadPrice) {
+                wp_clear_scheduled_hook('retailcrm_loyalty_upload_price');
+            }
+
+            if (!$this->get_errors() && !get_option('retailcrm_active_in_crm')) {
+                $this->activate_integration($settings);
+            }
+
+            return $settings;
+        }
+
+        /**
+         * Displaying the checkbox in the WP registration form(wp-login.php).
+         * Displaying the checkbox in the WC registration form.
+         * Displaying the checkbox in the Checkout order form.
+         */
+        public function checkout_form()
+        {
+            $style = is_wplogin()
+                ? 'margin-left: 2em; display: block; position: relative; margin-top: -1.4em; line-height: 1.4em;'
+                : '';
+
+            $html = sprintf(
+                '<div style="margin-bottom:15px">
+                            <input type="checkbox" id="subscribeEmail" name="subscribe" value="subscribed"/>
+                            <label style="%s" for="subscribeEmail">%s</label>
+                        </div>',
+                $style,
+                esc_html__('I agree to receive promotional newsletters', 'woo-retailcrm')
+            );
+
+            $allowed_tags = [
+                'div' => ['style' => []],
+                'input' => [
+                    'type'  => [],
+                    'id'    => [],
+                    'name'  => [],
+                    'value' => [],
+                ],
+                'label' => ['for' => [], 'style' => []],
+            ];
+            $allowed_tags = apply_filters('retailcrm_allowed_tags', $allowed_tags, 'checkout_form');
+
+            echo wp_kses($html, $allowed_tags);
+        }
+
+        /**
+         * If you change the time interval, need to clear the old cron tasks
+         *
+         * @codeCoverageIgnore Check in another tests
+         */
+        public function clear_cron_tasks()
+        {
+            if (wp_doing_ajax()) {
+                if (check_ajax_referer('woo-retailcrm-admin-nonce', '_ajax_nonce', false) !== 1) {
+                    $this->accessLog('woo-retailcrm-admin-nonce');
+                    wp_die();
+                }
+
+                if (!(current_user_can('manage_woocommerce') || current_user_can('manage_options'))) {
+                    $this->accessLog();
+                    wp_die();
+                }
+            }
+
+            WC_Retailcrm_Logger::setHook(current_action());
+            wp_clear_scheduled_hook('retailcrm_icml');
+            wp_clear_scheduled_hook('retailcrm_history');
+            wp_clear_scheduled_hook('retailcrm_inventories');
+            wp_clear_scheduled_hook('retailcrm_loyalty_upload_price');
+
+            //Add new cron tasks
+            $this->api_sanitized($this->settings);
+        }
+
+        /**
+         * Generate ICML
+         *
+         * @codeCoverageIgnore Check in another tests
+         */
+        public function generate_icml()
+        {
+            WC_Retailcrm_Logger::setHook(current_action());
+
+            if (wp_doing_ajax()) {
+                if (check_ajax_referer('woo-retailcrm-admin-nonce', '_ajax_nonce', false) !== 1) {
+                    $this->accessLog('woo-retailcrm-admin-nonce');
+                    wp_die();
+                }
+
+                if (!(current_user_can('manage_woocommerce') || current_user_can('manage_options'))) {
+                    $this->accessLog();
+                    wp_die();
+                }
+            }
+
+            /*
+             * A temporary solution.
+             * We have rebranded the module and changed the name of the ICML file.
+             * This solution checks the url specified to the ICML file and updates it if necessary.
+             */
+
+            if (!$this->apiClient instanceof WC_Retailcrm_Proxy) {
+                return null;
+            }
+
+            $codeSite   = '';
+            $infoApiKey = $this->apiClient->credentials();
+
+            if (
+                $infoApiKey->isSuccessful()
+                && !empty($infoApiKey['siteAccess'])
+                && !empty($infoApiKey['sitesAvailable'])
+                && $infoApiKey['siteAccess'] === 'access_selective'
+                && count($infoApiKey['sitesAvailable']) === 1
+            ) {
+                $codeSite = $infoApiKey['sitesAvailable'][0];
+            }
+
+            if (!empty($codeSite)) {
+                $getSites = $this->apiClient->sitesList();
+
+                if ($getSites->isSuccessful() && !empty($getSites['sites'][$codeSite])) {
+                    $dataSite = $getSites['sites'][$codeSite];
+
+                    if (!empty($dataSite['ymlUrl'])) {
+                        $ymlUrl = $dataSite['ymlUrl'];
+
+                        if (strpos($ymlUrl, 'simla') === false) {
+                            $ymlUrl = str_replace('/retailcrm.xml', '/simla.xml', $ymlUrl);
+                            $dataSite['ymlUrl'] = $ymlUrl;
+
+                            $this->apiClient->sitesEdit($dataSite);
+                        }
+                    }
+                }
+            }
+
+            $retailCrmIcml = new WC_Retailcrm_Icml();
+
+            $useXmlId = '';
+
+            if (isset($_POST['useXmlId'])) {
+                $useXmlId = sanitize_text_field(wp_unslash($_POST['useXmlId']));
+            }
+
+            // Generate new ICML catalog, because change bind_by_sku
+            if (!empty($useXmlId)) {
+                $retailCrmIcml->changeBindBySku($useXmlId);
+            }
+
+            $retailCrmIcml->generate();
+
+            $this->uploadCatalog($infoApiKey);
+        }
+
+        /**
+         * Add task for automatically upload catalog in CRM
+         */
+        private function uploadCatalog($infoApiKey)
+        {
+            WC_Retailcrm_Logger::info(__METHOD__, 'Add task for automatically upload catalog in CRM');
+
+            if ($infoApiKey->isSuccessful() && !empty($infoApiKey['scopes'])) {
+                if (!in_array('analytics_write', $infoApiKey['scopes'])) {
+                    WC_Retailcrm_Logger::error(
+                        __METHOD__,
+                        'To automatically load the catalog in CRM, you need to enable analytics_write for the API key'
+                    );
+
+                    return;
+                }
+
+                $statisticUpdate = $this->apiClient->statisticUpdate();
+
+                if ($statisticUpdate->isSuccessful()) {
+                    WC_Retailcrm_Logger::info(
+                        __METHOD__,
+                        'Catalog generated, upload task added to CRM'
+                    );
+                } else {
+                    WC_Retailcrm_Logger::error(
+                        __METHOD__,
+                        $statisticUpdate['errorMsg'] ?? 'Unrecognized error when adding catalog upload task to CRM'
+                    );
+                }
+            }
+        }
+
+        public function upload_loyalty_price()
+        {
+            if (wp_doing_ajax()) {
+                if (check_ajax_referer('woo-retailcrm-admin-nonce', '_ajax_nonce', false) !== 1) {
+                    $this->accessLog('woo-retailcrm-admin-nonce');
+                    wp_die();
+                }
+
+                if (!(current_user_can('manage_woocommerce') || current_user_can('manage_options'))) {
+                    $this->accessLog();
+                    wp_die();
+                }
+            }
+
+            if (!$this->apiClient instanceof WC_Retailcrm_Proxy) {
+                return null;
+            }
+
+            $discountPriceUpload = new WC_Retailcrm_Upload_Discount_Price($this->apiClient);
+            $discountPriceUpload->upload();
+        }
+
+        /**
+         * Get history
+         *
+         * @codeCoverageIgnore Check in another tests
+         */
+        public function retailcrm_history_get()
+        {
+            WC_Retailcrm_Logger::setHook(current_action());
+            $retailcrm_history = new WC_Retailcrm_History($this->apiClient);
+            $retailcrm_history->getHistory();
+        }
+
+        /**
+         * @param int|\WC_Order $order_id
+         *
+         * @codeCoverageIgnore Check in another tests
+         */
+        public function retailcrm_process_order($order_id)
+        {
+            if ($order_id instanceof \WC_Order) {
+                $order_id = $order_id->get_id();
+            }
+
+            WC_Retailcrm_Logger::setHook(current_action(), $order_id);
+            $this->orders->orderCreate($order_id);
+
+            if (WC()->session) {
+                WC()->session->__unset(self::TRACKER_CART_ID_SESSION_KEY);
+            }
+        }
+
+        /**
+         * Returns true if order was already processed via classic or Store API checkout hook.
+         */
+        private function checkout_order_already_processed(): bool
+        {
+            return (bool) (
+                did_action('woocommerce_checkout_order_processed')
+                || did_action('woocommerce_store_api_checkout_order_processed')
+            );
+        }
+
+        /**
+         * Load stock from retailCRM
+         *
+         * @codeCoverageIgnore Check in another tests
+         */
+        public function load_stocks()
+        {
+            WC_Retailcrm_Logger::setHook(current_action());
+            $inventories = new WC_Retailcrm_Inventories($this->apiClient);
+
+            $inventories->updateQuantity();
+        }
+
+        /**
+         * Upload selected orders
+         *
+         * @codeCoverageIgnore Check in another tests
+         *
+         * @return void
+         */
+        public function upload_selected_orders()
+        {
+            if (wp_doing_ajax()) {
+                if (check_ajax_referer('woo-retailcrm-admin-nonce', '_ajax_nonce', false) !== 1) {
+                    $this->accessLog('woo-retailcrm-admin-nonce');
+                    wp_die();
+                }
+
+                if (!(current_user_can('manage_woocommerce') || current_user_can('manage_options'))) {
+                    $this->accessLog();
+                    wp_die();
+                }
+            }
+
+            WC_Retailcrm_Logger::setHook(current_action());
+            $this->uploader->uploadSelectedOrders();
+        }
+
+        /**
+         * Upload archive customers and order to retailCRM
+         *
+         * @codeCoverageIgnore Check in another tests
+         */
+        public function upload_to_crm()
+        {
+            if (wp_doing_ajax()) {
+                if (check_ajax_referer('woo-retailcrm-admin-nonce', '_ajax_nonce', false) !== 1) {
+                    $this->accessLog('woo-retailcrm-admin-nonce');
+                    wp_die();
+                }
+
+                if (!(current_user_can('manage_woocommerce') || current_user_can('manage_options'))) {
+                    $this->accessLog();
+                    wp_die();
+                }
+            }
+
+            WC_Retailcrm_Logger::setHook(current_action());
+            $page = filter_input(INPUT_POST, 'Step', FILTER_SANITIZE_NUMBER_INT);
+            $entity = isset($_POST['Entity']) ? sanitize_text_field(wp_unslash($_POST['Entity'])) : null;
+
+            if ($entity === 'customer') {
+                $this->uploader->uploadArchiveCustomers($page);
+            } else {
+                $this->uploader->uploadArchiveOrders($page);
+            }
+        }
+
+        /**
+         * Create customer in retailCRM
+         *
+         * @codeCoverageIgnore There is a task for analysis
+         *
+         * @param int $customerId
+         *
+         * @return void
+         * @throws Exception
+         */
+        public function create_customer($customerId)
+        {
+            WC_Retailcrm_Logger::setHook(current_action(), $customerId);
+
+            if (WC_Retailcrm_Plugin::history_running() === true) {
+                return;
+            }
+
+            if (empty($customerId)) {
+                WC_Retailcrm_Logger::error(__METHOD__, 'Error: Customer externalId is empty');
+
+                return;
+            }
+
+            $post = $this->get_post_data();
+            $this->customers->isSubscribed = !empty($post['subscribe']);
+
+            $this->customers->registerCustomer($customerId);
+        }
+
+        /**
+         * Edit customer in retailCRM
+         *
+         * @codeCoverageIgnore Check in another tests
+         *
+         * @param int $customerId
+         *
+         * @return void
+         * @throws Exception
+         */
+        public function update_customer($customerId)
+        {
+            WC_Retailcrm_Logger::setHook(current_action(), $customerId);
+
+            if (WC_Retailcrm_Plugin::history_running() === true) {
+                WC_Retailcrm_Logger::info(__METHOD__, 'History in progress, skip');
+
+                return;
+            }
+
+            if (empty($customerId)) {
+                WC_Retailcrm_Logger::error(__METHOD__, 'Error: Customer externalId is empty');
+
+                return;
+            }
+
+            $this->customers->updateCustomer($customerId);
+        }
+
+        public function fill_array_create_orders($order_id)
+        {
+            WC_Retailcrm_Logger::setHook(current_action(), $order_id);
+
+            if (WC_Retailcrm_Plugin::history_running() === true) {
+                WC_Retailcrm_Logger::info(__METHOD__, 'History in progress, skip');
+
+                return;
+            }
+
+            $this->createdOrderId[$order_id] = $order_id;
+        }
+
+        /**
+         * Create order in RetailCRM from admin panel
+         *
+         * @codeCoverageIgnore Check in another tests
+         *
+         * @param int $order_id
+         */
+        public function create_order()
+        {
+            WC_Retailcrm_Logger::setHook(current_action());
+
+            if (did_action('woocommerce_new_order') === 0) {
+                return;
+            }
+
+            if ($this->checkout_order_already_processed()) {
+                WC_Retailcrm_Logger::info(
+                    __METHOD__,
+                    'There was a hook woocommerce_checkout_order_processed or woocommerce_store_api_checkout_order_processed'
+                );
+
+                return;
+            }
+
+            $logText = 'Creation order';
+
+            if (is_admin()) {
+                $logText = 'Creation order from admin panel';
+            }
+
+            foreach ($this->createdOrderId as $orderId) {
+                WC_Retailcrm_Logger::info(__METHOD__, sprintf('%1$s (%2$s)', $logText, $orderId));
+                $this->retailcrm_process_order($orderId);
+            }
+        }
+
+        /**
+         * Create and update cart in CRM
+         *
+         * @codeCoverageIgnore Check in another tests
+         *
+         * @return void
+         */
+        public function set_cart()
+        {
+            global $woocommerce;
+
+            WC_Retailcrm_Logger::setHook(current_action());
+
+            try {
+                $site = $this->apiClient->getSingleSiteForKey();
+                $cartItems = $woocommerce->cart->get_cart();
+                $customerId = $woocommerce->customer->get_id();
+
+                if (empty($site)) {
+                    WC_Retailcrm_Logger::error(
+                        __METHOD__,
+                        'Error with CRM credentials: need an valid apiKey assigned to one certain site'
+                    );
+                } elseif (empty($customerId)) {
+                    WC_Retailcrm_Logger::error(
+                        __METHOD__,
+                        'Abandoned carts work only for registered customers'
+                    );
+                } else {
+                    $isCartExist = $this->cart->isCartExist($customerId, $site);
+                    $isSuccessful = $this->cart->processCart($customerId, $cartItems, $site, $isCartExist);
+
+                    if ($isSuccessful) {
+                        WC_Retailcrm_Logger::info(
+                            __METHOD__,
+                            'Cart for customer ID: ' . $customerId . ' processed. Hook: ' . current_filter()
+                        );
+                    } else {
+                        WC_Retailcrm_Logger::error(
+                            __METHOD__,
+                            'Cart for customer ID: ' . $customerId . ' not processed. Hook: ' . current_filter()
+                        );
+                    }
+                }
+            } catch (Throwable $exception) {
+                WC_Retailcrm_Logger::exception(__METHOD__, $exception);
+            }
+        }
+
+        /**
+         * Clear the cart in CRM for 2 cases:
+         * 1. Delete all items from the basket;
+         * 2. Create an order, items from the cart are automatically deleted.
+         *
+         * The hook is called 3 times.
+         *
+         * @codeCoverageIgnore Check in another tests
+         *
+         * @return void
+         */
+        public function clear_cart()
+        {
+            global $woocommerce;
+
+            WC_Retailcrm_Logger::setHook(current_action());
+
+            try {
+                $site = $this->apiClient->getSingleSiteForKey();
+                $customerId = $woocommerce->customer->get_id();
+
+                if (empty($site)) {
+                    WC_Retailcrm_Logger::info(
+                        __METHOD__,
+                        'Error with CRM credentials: need an valid apiKey assigned to one certain site'
+                    );
+                } elseif (empty($customerId)) {
+                    WC_Retailcrm_Logger::info(
+                        __METHOD__,
+                        'Abandoned carts work only for registered customers'
+                    );
+                } else {
+                    $isCartExist = $this->cart->isCartExist($customerId, $site);
+                    $isSuccessful = $this->cart->clearCart($customerId, $site, $isCartExist);
+
+                    if ($isSuccessful) {
+                        WC_Retailcrm_Logger::info(
+                            __METHOD__,
+                            'Cart for customer ID: ' . $customerId . ' cleared. Hook: ' . current_filter()
+                        );
+                    } elseif ($isCartExist) {
+                        WC_Retailcrm_Logger::info(
+                            __METHOD__,
+                            'Cart for customer ID: ' . $customerId . ' not cleared. Hook: ' . current_filter()
+                        );
+                    }
+                }
+            } catch (Throwable $exception) {
+                WC_Retailcrm_Logger::exception(__METHOD__, $exception);
+            }
+        }
+
+        /**
+         * Edit order in retailCRM
+         *
+         * @codeCoverageIgnore Check in another tests
+         *
+         * @param int $order_id
+         *
+         * @throws \Exception
+         */
+        public function fill_array_update_orders($order_id)
+        {
+            WC_Retailcrm_Logger::setHook(current_action(), $order_id);
+
+            if (
+                WC_Retailcrm_Plugin::history_running() === true
+                || $this->checkout_order_already_processed()
+                || did_action('woocommerce_new_order')
+            ) {
+                WC_Retailcrm_Logger::info(
+                    __METHOD__,
+                    'History in progress or already did actions (woocommerce_checkout_order_processed;woocommerce_store_api_checkout_order_processed;woocommerce_new_order), skip'
+                );
+
+                return;
+            }
+
+            $this->updatedOrderId[$order_id] = $order_id;
+        }
+
+        public function update_order()
+        {
+            WC_Retailcrm_Logger::setHook(current_action());
+
+            foreach ($this->updatedOrderId as $orderId) {
+                if (!isset($this->createdOrderId[$orderId])) {
+                    $this->orders->updateOrder($orderId);
+                }
+            }
+        }
+
+        public function update_order_items($orderId)
+        {
+            if (is_admin()) {
+                WC_Retailcrm_Logger::setHook(current_action(), $orderId);
+                $this->orders->updateOrder($orderId);
+            }
+        }
+
+        public function trash_order_action($id)
+        {
+            if ('shop_order' == get_post_type($id)) {
+                WC_Retailcrm_Logger::setHook(current_action(), $id);
+                $this->orders->updateOrder($id, true);
+            }
+        }
+
+        /**
+         * Init google analytics code
+         */
+        public function initialize_analytics()
+        {
+            if ($this->get_option('ua') && $this->get_option('ua_code')) {
+                $retailcrm_analytics = WC_Retailcrm_Google_Analytics::getInstance($this->settings);
+
+                echo wp_kses($retailcrm_analytics->initialize_analytics(), ['script' => ['type' => []]]);
+            } else {
+                echo '';
+            }
+        }
+
+        /**
+         * Google analytics send code
+         *
+         * @codeCoverageIgnore Check in another tests
+         */
+        public function send_analytics()
+        {
+            if ($this->get_option('ua') == static::YES && $this->get_option('ua_code') && is_checkout()) {
+                $retailcrm_analytics = WC_Retailcrm_Google_Analytics::getInstance($this->settings);
+
+                echo wp_kses($retailcrm_analytics->send_analytics(), ['script' => ['type' => []]]);
+            } else {
+                echo '';
+            }
+        }
+
+        /**
+         * Daemon collector
+         *
+         * @codeCoverageIgnore Check in another tests
+         */
+        public function initialize_daemon_collector()
+        {
+            if ($this->get_option('daemon_collector') == static::YES && $this->get_option('daemon_collector_key')) {
+                $retailcrm_daemon_collector = WC_Retailcrm_Daemon_Collector::getInstance($this->settings);
+
+                echo wp_kses($retailcrm_daemon_collector->initialize_daemon_collector(), ['script' => ['type' => []]]);
+            } else {
+                echo '';
+            }
+        }
+
+        /**
+         * Initialize online consultant
+         */
+        public function initialize_online_assistant()
+        {
+            if (!is_admin() && !is_wplogin()) {
+                echo wp_kses($this->get_option('online_assistant'), ['script' => ['type' => []]]);
+            }
+        }
+
+        /**
+         * In this method we include files in admin WP
+         *
+         * @codeCoverageIgnore
+         *
+         * @return void
+         */
+        public function include_files_for_admin()
+        {
+            $this->include_css_files_for_admin();
+            $this->include_js_scripts_for_admin();
+        }
+
+        public function get_status_coupon()
+        {
+            if (wp_doing_ajax()) {
+                if (check_ajax_referer('woo-retailcrm-admin-nonce', '_ajax_nonce', false) !== 1) {
+                    $this->accessLog('woo-retailcrm-admin-nonce');
+                    wp_die();
+                }
+
+                if (!(current_user_can('manage_woocommerce') || current_user_can('manage_options'))) {
+                    $this->accessLog();
+                    wp_die();
+                }
+            }
+
+            $coupon_settings_url = admin_url('admin.php?page=wc-settings');
+
+            echo wp_json_encode(
+                [
+                    'coupon_status' => get_option('woocommerce_enable_coupons'),
+                    'translate' => [
+                        'coupon_warning' => sprintf(
+                            /* translators: %s: HTML link to coupon settings page. */
+                            __( 'To activate the loyalty program it is necessary to activate the %s.', 'woo-retailcrm'),
+                            '<a href="' . esc_url($coupon_settings_url) . '">' . esc_html__( 'Enable use of coupons option', 'woo-retailcrm' ) . '</a>'
+                        )
+                    ]
+                ]);
+
+            wp_die();
+        }
+
+        public function register_customer_loyalty()
+        {
+            if (wp_doing_ajax() && check_ajax_referer('woo-retailcrm-loyalty-actions-nonce', '_ajax_nonce', false) !== 1) {
+                $this->accessLog('woo-retailcrm-loyalty-actions-nonce');
+                wp_die();
+            }
+
+            $phone = isset($_POST['phone']) ? sanitize_text_field(wp_unslash($_POST['phone'])) : null;
+            $userId = filter_input(INPUT_POST, 'userId', FILTER_SANITIZE_NUMBER_INT);
+            $site = $this->apiClient->getSingleSiteForKey();
+            $isSuccessful = false;
+
+            if (!empty($site) && $userId && $phone) {
+                $isSuccessful = $this->loyalty->registerCustomer($userId, $phone, $site);
+            }
+
+            if (!$isSuccessful) {
+                WC_Retailcrm_Logger::error(
+                    __METHOD__,
+                    sprintf(
+                        'Errors when registering a loyalty program. Passed parameters: %s',
+                        wp_json_encode(['site' => $site, 'userId' => $userId, 'phone' => $phone])
+                    )
+                );
+                echo wp_json_encode(['error' => esc_html__('Error while registering in the loyalty program. Try again later', 'woo-retailcrm')]);
+            } else {
+                echo wp_json_encode(['isSuccessful' => true]);
+            }
+
+            wp_die();
+        }
+
+        public function activate_customer_loyalty()
+        {
+            if (wp_doing_ajax() && check_ajax_referer('woo-retailcrm-loyalty-actions-nonce', '_ajax_nonce', false) !== 1) {
+                $this->accessLog('woo-retailcrm-loyalty-actions-nonce');
+                wp_die();
+            }
+
+            $loyaltyId = filter_input(INPUT_POST, 'loyaltyId', FILTER_SANITIZE_NUMBER_INT);
+            $isSuccessful = false;
+            $checkId = null;
+
+            if ($loyaltyId) {
+                $response = $this->loyalty->activateLoyaltyCustomer($loyaltyId);
+
+                if ($response instanceof WC_Retailcrm_Response && $response->isSuccessful()) {
+                    $isSuccessful = true;
+
+                    if ($response->offsetExists('verification') && isset($response['verification']['checkId'])) {
+                        $checkId = $response['verification']['checkId'];
+                    }
+                }
+            }
+
+            if (!$isSuccessful) {
+                WC_Retailcrm_Logger::error(
+                    __METHOD__,
+                    'Errors when activate loyalty program. Passed parameters: ' . wp_json_encode(['loyaltyId' => $loyaltyId])
+                );
+                echo wp_json_encode(['error' => esc_html__('Error when activating the loyalty program. Try again later', 'woo-retailcrm')]);
+            } else {
+                if (null !== $checkId && '' !== $checkId) {
+                    echo wp_json_encode([
+                        'isSuccessful' => true,
+                        'needSmsVerification' => true,
+                        'smsForm' => $this->loyalty->getSmsVerificationForm($checkId),
+                    ]);
+                } else {
+                    echo wp_json_encode(['isSuccessful' => true]);
+                }
+            }
+
+            wp_die();
+        }
+
+        public function confirm_sms_customer_loyalty()
+        {
+            if (wp_doing_ajax() && check_ajax_referer('woo-retailcrm-loyalty-actions-nonce', '_ajax_nonce', false) !== 1) {
+                $this->accessLog('woo-retailcrm-loyalty-actions-nonce');
+                wp_die();
+            }
+
+            $code = isset($_POST['code']) ? sanitize_text_field(wp_unslash($_POST['code'])) : null;
+            $checkId = isset($_POST['checkId']) ? sanitize_text_field(wp_unslash($_POST['checkId'])) : null;
+            $isSuccessful = false;
+
+            if (null !== $code && null !== $checkId) {
+                $isSuccessful = $this->loyalty->confirmSmsVerification($code, $checkId);
+            }
+
+            if (!$isSuccessful) {
+                WC_Retailcrm_Logger::error(
+                    __METHOD__,
+                    'Errors when confirming sms verification for loyalty program. Passed parameters: '
+                    . wp_json_encode(['checkId' => $checkId])
+                );
+
+                echo wp_json_encode(['error' => esc_html__('Incorrect SMS code or an error occurred', 'woo-retailcrm')]);
+            } else {
+                echo wp_json_encode(['isSuccessful' => true]);
+            }
+
+            wp_die();
+        }
+
+        public function coupon_info()
+        {
+            WC_Retailcrm_Logger::setHook(current_action());
+
+            try {
+                $result = $this->loyalty->processingLoyaltyCoupon();
+
+                if ($result) {
+                    $allowed_tags = [
+                        'div' => [
+                            'style' => true,
+                            'id'    => true,
+                            'onclick' => true,
+                            'hidden' => [],
+                        ],
+                         'input' => [
+                                    'type'  => [],
+                                    'id'    => [],
+                                    'name'  => [],
+                                    'value' => [],
+                                    'style' => [],
+                                    'placeholder' => [],
+                            ],
+                        'b'   => [],
+                        'table' => ['style' => []],
+                        'tr' => ['style' => []],
+                        'td' => ['style' => []],
+                        'i'   => ['style' => true, 'id' => true, 'onclick' => true],
+                        'u'   => [],
+                        'label' => ['for' => [], 'style' => []],
+                        'button' => ['style' => [], 'type' => [], 'class' => [], 'onclick' => [], 'id' => []],
+                    ];
+                    $allowed_tags = apply_filters('retailcrm_allowed_tags', $allowed_tags, 'coupon_info');
+
+                    echo wp_kses($result, $allowed_tags);
+                }
+
+                $jsScriptPath = plugins_url() . self::ASSETS_DIR . '/js/retailcrm-loyalty-cart.js';
+                $scriptPath = plugin_dir_path( __FILE__ ) . '../assets/js/retailcrm-loyalty-cart.js';
+
+                wp_register_script('retailcrm-loyalty-cart', $jsScriptPath, array('jquery'), filemtime($scriptPath), true);
+                wp_enqueue_script('retailcrm-loyalty-cart');
+                wp_localize_script('retailcrm-loyalty-cart', 'RetailcrmAdminCoupon', [
+                        'url' => get_admin_url(),
+                        'nonce' => wp_create_nonce('woo-retailcrm-coupon-info-nonce'),
+                        'loyalty_nonce' => wp_create_nonce('loyalty_coupon_nonce'),
+                        'apply_coupon_nonce' => wp_create_nonce('apply_coupon_nonce'),
+                        'translations' => [
+                                'incorrect_count' => esc_html__('Incorrect count of bonuses', 'woo-retailcrm'),
+                                'using_bonuses' => esc_html__('Using...', 'woo-retailcrm'),
+                                'error_occurred' => esc_html__('Error occurred', 'woo-retailcrm'),
+                        ]
+                ]);
+            } catch (Throwable $exception) {
+                WC_Retailcrm_Logger::exception(__METHOD__, $exception);
+            }
+        }
+
+        public function refresh_loyalty_coupon()
+        {
+            WC_Retailcrm_Logger::setHook(current_action());
+
+            try {
+                $this->loyalty->processingLoyaltyCoupon(true);
+            } catch (Throwable $exception) {
+                WC_Retailcrm_Logger::exception(__METHOD__, $exception);
+            }
+        }
+
+        /**
+         * Applies the loyalty coupon outside the classic cart template (block-based cart).
+         */
+        public function apply_loyalty_coupon()
+        {
+            WC_Retailcrm_Logger::setHook(current_action());
+
+            try {
+                $this->loyalty->processingLoyaltyCoupon();
+            } catch (Throwable $exception) {
+                WC_Retailcrm_Logger::exception(__METHOD__, $exception);
+            }
+        }
+
+        public function clear_loyalty_coupon()
+        {
+            WC_Retailcrm_Logger::setHook(current_action());
+
+            try {
+                $this->loyalty->clearLoyaltyCoupon();
+            } catch (Throwable $exception) {
+                WC_Retailcrm_Logger::exception(__METHOD__, $exception);
+            }
+        }
+
+        public function remove_coupon($couponCode)
+        {
+            WC_Retailcrm_Logger::setHook(current_action());
+
+            try {
+                if (!$this->loyalty->deleteLoyaltyCoupon($couponCode)) {
+                    $this->loyalty->processingLoyaltyCoupon(true);
+                }
+            } catch (Throwable $exception) {
+                WC_Retailcrm_Logger::exception(__METHOD__, $exception);
+            }
+        }
+
+        public function apply_coupon($couponCode)
+        {
+            WC_Retailcrm_Logger::setHook(current_action());
+
+            try {
+                if (!$this->loyalty->isLoyaltyCoupon($couponCode)) {
+                    $this->loyalty->processingLoyaltyCoupon(true);
+                }
+            } catch (Throwable $exception) {
+                WC_Retailcrm_Logger::exception(__METHOD__, $exception);
+            }
+        }
+
+        public function reviewCreditBonus()
+        {
+            WC_Retailcrm_Logger::setHook(current_action());
+            $resultHtml = $this->loyalty->getCreditBonuses();
+
+            if ($resultHtml) {
+                $allowed_tags = [
+                    'b' => ['style' => true],
+                    'u' => ['style' => true],
+                    'i' => ['style' => true]
+                ];
+                $allowed_tags = apply_filters('retailcrm_allowed_tags', $allowed_tags, 'loyalty_credit_bonuses');
+
+                echo wp_kses($resultHtml, $allowed_tags);
+            }
+        }
+
+        /**
+         * In this method we include CSS file
+         *
+         * @codeCoverageIgnore
+         *
+         * @return void
+         */
+        private function include_css_files_for_admin()
+        {
+            $path =  plugins_url() . self::ASSETS_DIR . '/css/';
+
+            // Include style for export
+            wp_register_style('retailcrm-export-style', $path . 'progress-bar.min.css', false, '0.1');
+            wp_enqueue_style('retailcrm-export-style');
+
+            // Include style for debug info
+            wp_register_style('retailcrm-debug-info-style', $path . 'debug-info.min.css', false, '0.1');
+            wp_enqueue_style('retailcrm-debug-info-style');
+
+            // Include style for meta fields
+            wp_register_style('retailcrm-meta-fields-style', $path . 'meta-fields.min.css', false, '0.1');
+            wp_enqueue_style('retailcrm-meta-fields-style');
+        }
+
+        /**
+         * In this method we include JS scripts.
+         *
+         * @codeCoverageIgnore
+         *
+         * @return void
+         */
+        private function include_js_scripts_for_admin()
+        {
+            $jsScripts = [
+                'retailcrm-export',
+                'retailcrm-cron-info',
+                'retailcrm-meta-fields',
+                'retailcrm-module-settings',
+                'retailcrm-loyalty',
+                'retailcrm-tracker-interface',
+            ];
+
+            $jsScriptsPath =  plugins_url() . self::ASSETS_DIR . '/js/';
+            $jsScriptsPathDir  = plugin_dir_path( __FILE__ ) . '../assets/js/';
+
+            foreach ($jsScripts as $scriptName) {
+                $scriptDir = $jsScriptsPath . $scriptName . '.js';
+                $scriptPath = $jsScriptsPathDir . $scriptName . '.js';
+
+                wp_register_script($scriptName, $scriptDir, ['jquery'], filemtime($scriptPath), true);
+                wp_enqueue_script($scriptName);
+            }
+
+            // In this method transfer wp-admin url in JS scripts.
+            wp_localize_script($scriptName, 'RetailcrmAdmin', [
+                'url' => get_admin_url(),
+                'nonce' => wp_create_nonce('woo-retailcrm-admin-nonce')
+            ]);
+
+            $this->include_js_translates_for_tracker();
+        }
+
+        public function enqueue_online_consultant_script_for_user()
+        {
+            if ($this->get_option('online_assistant') !== '' && is_user_logged_in()) {
+                $user = wp_get_current_user();
+
+                // wp_localize_script() can only be applied to a script that is registered and enqueued.
+                // Since we don't have an actual JS file, we register and enqueue a "dummy" script.
+                wp_register_script('retailcrm-widget', false, [], '1.0.0', false);
+                wp_enqueue_script('retailcrm-widget');
+
+                // '_rcco' is an external variable used by Online Consult. We cannot rename it to 'retailcrm_rcco'
+                // because it must match the expected global variable name in the Online Consultant widget.
+                wp_localize_script('retailcrm-widget', '_rcco', [
+                        'customer' => [
+                                'name' => $user->display_name,
+                                'customer_id' => $user->ID,
+                        ]
+                ]);
+            }
+        }
+
+        public function include_js_script_for_tracker()
+        {
+            $scriptName = 'retailcrm-tracker';
+            $jsScriptsPath = plugins_url() . self::ASSETS_DIR . '/js/' . $scriptName . '.js';
+            $scriptPath = plugin_dir_path( __FILE__ ) . '../assets/js/' . $scriptName . '.js';
+
+            wp_register_script($scriptName, $jsScriptsPath, ['jquery'], filemtime($scriptPath), true);
+            wp_enqueue_script($scriptName);
+            wp_localize_script($scriptName, 'RetailcrmTracker', ['url' => get_admin_url()]);
+        }
+
+        public function include_js_translates_for_tracker()
+        {
+            $translations = [
+                'tracker_activity' => esc_html__('Activate event tracking', 'woo-retailcrm'),
+                'page_view' => esc_html__('Page View', 'woo-retailcrm'),
+                'cart' => esc_html__('Cart', 'woo-retailcrm'),
+                'open_cart' => esc_html__('Open Cart', 'woo-retailcrm'),
+                'page_view_desc' => esc_html__('Tracks user page views', 'woo-retailcrm'),
+                'cart_desc' => esc_html__('Tracks changes in the cart (adding/removing items)', 'woo-retailcrm'),
+                'open_cart_desc' => esc_html__('Tracks when the user opens the cart', 'woo-retailcrm'),
+            ];
+
+            wp_localize_script('retailcrm-tracker-interface', 'retailcrm_localized', $translations);
+        }
+
+        /**
+         * Include style for WhatsApp icon
+         *
+         * @codeCoverageIgnore
+         *
+         * @return void
+         */
+        public function include_whatsapp_icon_style()
+        {
+            wp_register_style('whatsapp_icon_style', plugins_url() . self::ASSETS_DIR . '/css/whatsapp-icon.min.css', false, '0.1');
+            wp_enqueue_style('whatsapp_icon_style');
+        }
+
+        /**
+         * Initialize WhatsApp
+         */
+        public function initialize_whatsapp()
+        {
+            if ($this->get_option('whatsapp_active') === 'yes' && !is_admin() && !is_wplogin()) {
+                $phoneNumber = $this->get_option('whatsapp_number');
+                $positionIcon = $this->get_option('whatsapp_location_icon') === 'yes' ? 'right' : 'left';
+                $whatsAppHtml = '<div class="whatsapp-icon whatsapp-icon_%s">
+                                <a class="whatsapp-icon__link" href="https://api.whatsapp.com/send/?phone=%s&text&app_absent=0" target="_blank">
+                                  <svg class="whatsapp-icon__icon" fill="none" viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 24c6.627 0 12-5.373 12-12S18.627 0 12 0 0 5.373 0 12s5.373 12 12 12z" fill="#25D366"/><path d="M12.396 18.677h-.003a7.13 7.13 0 01-3.41-.869L5.2 18.8l1.013-3.697a7.123 7.123 0 01-.953-3.567C5.262 7.6 8.463 4.4 12.396 4.4c1.909.001 3.7.744 5.047 2.093a7.093 7.093 0 012.088 5.048c-.001 3.934-3.201 7.134-7.135 7.136zm-3.238-2.16l.217.128c.91.54 1.954.826 3.018.827h.003a5.94 5.94 0 005.93-5.931 5.895 5.895 0 00-1.735-4.196 5.89 5.89 0 00-4.193-1.74 5.94 5.94 0 00-5.933 5.931c0 1.12.313 2.212.907 3.156l.14.225-.599 2.188 2.245-.588zm6.588-3.44c.125.06.209.101.245.161.044.074.044.431-.104.848-.15.416-.861.796-1.204.848a2.443 2.443 0 01-1.123-.071 10.223 10.223 0 01-1.016-.376c-1.672-.721-2.801-2.341-3.015-2.648l-.031-.044-.002-.002c-.094-.126-.726-.97-.726-1.842 0-.821.403-1.252.589-1.45l.035-.038a.655.655 0 01.475-.223c.12 0 .238.001.342.007h.04c.104 0 .233-.001.361.306.05.118.121.293.197.478.154.373.323.786.353.846.044.089.074.193.015.312l-.025.05c-.045.092-.078.159-.153.247l-.092.11c-.061.075-.123.15-.176.203-.09.089-.182.185-.078.364.104.178.462.762.992 1.235.57.508 1.065.723 1.316.832.049.02.088.038.118.053.178.089.282.074.386-.045.104-.119.446-.52.564-.7.12-.178.238-.148.402-.088.163.06 1.04.49 1.218.58l.097.048z" fill="#FDFDFD"/></svg>
+                                </a>
+                                <div class="chat-btn__wrapper">
+                                  <p class="chat-btn__text">
+                                    Powered<br>by
+                                    <a href="https://www.simla.com?utm_source=woocommerce&utm_medium=home_button&utm_campaign=whatsapp_link" target="_blank" class="chat-btn__link">Simla.com</a>  
+                                  </p>
+                                </div>
+                            </div>';
+
+                $allowed_tags = [
+                    'div' => ['class' => true],
+                    'a' => ['href' => true, 'target' => true, 'class' => true],
+                    'p' => ['class' => true],
+                    'svg' => ['class' => true, 'fill' => true, 'viewbox' => true, 'xmlns' => true],
+                    'path' => ['d' => true, 'fill' => true],
+                    'br' => [],
+                ];
+
+                echo wp_kses(sprintf($whatsAppHtml, $positionIcon, $phoneNumber), $allowed_tags);
+            }
+        }
+
+        /**
+         * Return count upload data
+         */
+        public function count_upload_data()
+        {
+            if (wp_doing_ajax()) {
+                if (check_ajax_referer('woo-retailcrm-admin-nonce', '_ajax_nonce', false) !== 1) {
+                    $this->accessLog('woo-retailcrm-admin-nonce');
+                    wp_die();
+                }
+
+                if (!(current_user_can('manage_woocommerce') || current_user_can('manage_options'))) {
+                    $this->accessLog();
+                    wp_die();
+                }
+            }
+
+            $translate = [
+                'tr_order'       => esc_html__('Orders', 'woo-retailcrm'),
+                'tr_customer'    => esc_html__('Customers', 'woo-retailcrm'),
+                'tr_empty_field' => esc_html__('The field cannot be empty, enter the order ID', 'woo-retailcrm'),
+                'tr_successful'  => esc_html__('Orders were uploaded', 'woo-retailcrm'),
+            ];
+
+            echo wp_json_encode(
+                [
+                    'count_orders' => $this->uploader->getCountOrders(),
+                    'count_users'  => $this->uploader->getCountUsers(),
+                    'translate'    => $translate,
+                ]
+            );
+
+            wp_die();
+        }
+
+        /**
+         * Return time work next cron
+         */
+        public function get_cron_info()
+        {
+            if (wp_doing_ajax()) {
+                if (check_ajax_referer('woo-retailcrm-admin-nonce', '_ajax_nonce', false) !== 1) {
+                    $this->accessLog('woo-retailcrm-admin-nonce');
+                    wp_die();
+                }
+
+                if (!(current_user_can('manage_woocommerce') || current_user_can('manage_options'))) {
+                    $this->accessLog();
+                    wp_die();
+                }
+            }
+
+            $defaultValue = esc_html__('This option is disabled', 'woo-retailcrm');
+            $icml         = $defaultValue;
+            $history      = $defaultValue;
+            $inventories  = $defaultValue;
+            $loyaltyUploadPrice = $defaultValue;
+
+            $translate    = [
+                'tr_td_cron'        => esc_html__('Cron launches', 'woo-retailcrm'),
+                'tr_td_icml'        => esc_html__('Generation ICML', 'woo-retailcrm'),
+                'tr_td_history'     => esc_html__('Syncing history', 'woo-retailcrm'),
+                'tr_successful'     => esc_html__('Cron tasks cleared', 'woo-retailcrm'),
+                'tr_td_inventories' => esc_html__('Syncing inventories', 'woo-retailcrm'),
+                'tr_td_loyaltyUploadPrice' => esc_html__('Unloading promotional prices of offers', 'woo-retailcrm')
+            ];
+
+            if (isset($this->settings['history']) && $this->settings['history'] == static::YES) {
+                $history = gmdate('H:i:s d-m-Y', wp_next_scheduled('retailcrm_history'));
+            }
+
+            if (isset($this->settings['icml']) && $this->settings['icml'] == static::YES) {
+                $icml = gmdate('H:i:s d-m-Y', wp_next_scheduled('retailcrm_icml'));
+
+                if (isset($this->settings['loyalty']) && $this->settings['loyalty'] === static::YES) {
+                    $loyaltyUploadPrice = gmdate('H:i:s d-m-Y', wp_next_scheduled('retailcrm_loyalty_upload_price'));
+                }
+            }
+
+            if (isset($this->settings['sync']) && $this->settings['sync'] == static::YES) {
+                $inventories = gmdate('H:i:s d-m-Y ', wp_next_scheduled('retailcrm_inventories'));
+            }
+
+            echo wp_json_encode(
+                [
+                    'history'     => $history,
+                    'icml'        => $icml,
+                    'inventories' => $inventories,
+                    'translate'   => $translate,
+                    'loyaltyUploadPrice' => $loyaltyUploadPrice
+                ]
+            );
+
+            wp_die();
+        }
+
+        /**
+         * Set meta fields in settings
+         */
+        public function set_meta_fields()
+        {
+            if (!$this->apiClient instanceof WC_Retailcrm_Proxy) {
+                return null;
+            }
+
+            if (wp_doing_ajax()) {
+                if (check_ajax_referer('woo-retailcrm-admin-nonce', '_ajax_nonce', false) !== 1) {
+                    $this->accessLog('woo-retailcrm-admin-nonce');
+                    wp_die();
+                }
+
+                if (!(current_user_can('manage_woocommerce') || current_user_can('manage_options'))) {
+                    $this->accessLog();
+                    wp_die();
+                }
+            }
+
+            WC_Retailcrm_Logger::setHook(current_action());
+
+            $orderMetaData        = $this->getMetaData('order');
+            $customerMetaData     = $this->getMetaData('user');
+            $orderCustomFields    = $this->getCustomFields('order');
+            $customerCustomFields = $this->getCustomFields('customer');
+            $defaultCrmOrderFields = $this->getDefaultCrmOrderFields();
+            $defaultCrmCustomerFields = $this->getDefaultCrmCustomerFields();
+
+            $translate = [
+                'tr_lb_order'    => esc_html__('Custom fields for order', 'woo-retailcrm'),
+                'tr_lb_customer' => esc_html__('Custom fields for customer', 'woo-retailcrm'),
+                'tr_btn'         => esc_html__('Add new select for order', 'woo-retailcrm'),
+            ];
+
+            echo wp_json_encode(
+                [
+                    'order' => [
+                        'meta' => $orderMetaData,
+                        'custom' => $orderCustomFields,
+                        'crmDefault' => $defaultCrmOrderFields,
+                        'tr_default_crm_fields' => esc_html__('Standard CRM fields', 'woo-retailcrm'),
+                    ],
+                    'customer' => [
+                        'meta' => $customerMetaData,
+                        'custom' => $customerCustomFields,
+                        'crmDefault' => $defaultCrmCustomerFields,
+                        'tr_default_crm_fields' => esc_html__('Standard CRM fields', 'woo-retailcrm'),
+                    ],
+                    'translate' => $translate,
+                ]
+            );
+
+            wp_die();
+        }
+
+        public function add_loyalty_item($items)
+        {
+            WC_Retailcrm_Logger::setHook(current_action());
+            $items['loyalty'] = esc_html__('Loyalty program', 'woo-retailcrm');
+
+            return $items;
+        }
+
+        public function add_loyalty_endpoint()
+        {
+            add_rewrite_endpoint('loyalty', EP_PAGES);
+        }
+
+        public function show_loyalty()
+        {
+            $userId = get_current_user_id();
+
+            if (!isset($userId)) {
+                return;
+            }
+
+            WC_Retailcrm_Logger::setHook(current_action());
+
+            $jsScript = 'retailcrm-loyalty-actions';
+            $loyaltyUrl = ['url' => get_admin_url()];
+            $jsScriptsPath =  plugins_url() . self::ASSETS_DIR . '/js/';
+            $cssPath = plugins_url() . self::ASSETS_DIR . '/css/';
+            $messagePhone = esc_html__('Enter the correct phone number', 'woo-retailcrm');
+
+            $loyaltyTemrs = $this->settings['loyalty_terms'] ?? '';
+            $loyaltyPersonal = $this->settings['loyalty_personal'] ?? '';
+
+            $scriptDir = $jsScriptsPath . $jsScript . '.js';
+            $scriptPath = plugin_dir_path( __FILE__ ) . '../assets/js/' . $jsScript . '.js';
+
+            wp_register_script($jsScript, $scriptDir, ['jquery'], filemtime($scriptPath), true);
+            wp_enqueue_script($jsScript);
+            wp_localize_script($jsScript, 'retailcrmLoyaltyUrl', $loyaltyUrl);
+            wp_localize_script($jsScript, 'retailcrmCustomerId', $userId);
+            wp_localize_script($jsScript, 'retailcrmMessagePhone', $messagePhone);
+            wp_localize_script($jsScript, 'retailcrmTermsLoyalty', $loyaltyTemrs);
+            wp_localize_script($jsScript, 'retailcrmPrivacyLoyalty',  $loyaltyPersonal);
+            wp_localize_script($jsScript, 'retailcrmNonce', wp_create_nonce('woo-retailcrm-loyalty-actions-nonce'));
+            wp_register_style('retailcrm-loyalty-style', $cssPath . 'retailcrm-loyalty-style.css', false, '0.1');
+            wp_enqueue_style('retailcrm-loyalty-style');
+
+            $result = $this->loyalty->getForm($userId, $loyaltyTemrs, $loyaltyPersonal);
+
+            if ([] === $result) {
+                $allowed_tags = apply_filters('retailcrm_allowed_tags', ['p' => ['style' => true],], 'loyalty_form_error');
+
+                echo wp_kses('<p style="color: red">'. esc_html__('Error while retrieving data. Try again later', 'woo-retailcrm') . '</p>', $allowed_tags);
+            } else {
+                wp_localize_script($jsScript, 'retailcrmLoyaltyId', $result['loyaltyId'] ?? null);
+                $allowed_tags = [
+                    'form' => ['id' => true, 'method' => true],
+                    'input' => ['type' => true, 'id' => true, 'name' => true, 'value' => true, 'placeholder' => true, 'required' => true],
+                    'p' => ['style' => true],
+                    'b' => ['style' => true],
+                    'u' => ['style' => true],
+                    'i' => ['style' => true],
+                    'a' => ['id' => true, 'class' => true, 'href' => true, 'target' => true],
+                    'div' => ['id' => true, 'class' => true],
+                    'br' => [],
+                    'table' => ['style' => true],
+                    'tbody' => ['style' => true],
+                    'tr' => ['style' => true],
+                    'td' => ['style' => true]
+                ];
+                $allowed_tags = apply_filters('retailcrm_allowed_tags', $allowed_tags, 'loyalty_form');
+
+                echo wp_kses($result['form'], $allowed_tags);
+            }
+        }
+
+
+        /**
+         * Get custom fields with CRM
+         *
+         * @return array
+         */
+        private function getCustomFields($entity)
+        {
+            $customFields    = ['default_retailcrm' => esc_html__('Select value', 'woo-retailcrm')];
+            $getCustomFields = $this->apiClient->customFieldsList(['entity' => $entity], 100);
+
+            if (!empty($getCustomFields['customFields']) && $getCustomFields->isSuccessful()) {
+                foreach ($getCustomFields['customFields'] as $field) {
+                    if (!empty($field['code']) && $field['name']) {
+                        $customFields[$field['code']] = $field['name'];
+                    }
+                }
+            }
+
+            return $customFields;
+        }
+
+        /**
+         * Get meta data with CMS
+         *
+         * @return array
+         */
+        private function getMetaData($entity)
+        {
+            global $wpdb;
+
+            if ('user' === $entity) {
+                $table = esc_sql($wpdb->usermeta);
+            } elseif (useHpos()) {
+                $table = esc_sql($wpdb->prefix . 'wc_orders_meta');
+            } else {
+                $table = esc_sql($wpdb->postmeta);
+            }
+
+            $metaData = ['default_retailcrm' => esc_html__('Select value', 'woo-retailcrm')];
+            $defaultMetaFields = file(
+                WP_PLUGIN_DIR . self::ASSETS_DIR . '/default/default_meta_fields.txt',
+                FILE_IGNORE_NEW_LINES
+            );
+
+            $cache_key = 'retailcrm_meta_keys_' . md5($table);
+            $meta_keys = wp_cache_get($cache_key);
+
+            if (false === $meta_keys) {
+                // Caching has been added, but PHPCS does not detect it.
+                // $wpdb->prepare() does not support table name substitution.
+                // phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+                $meta_keys = $wpdb->get_results("SELECT DISTINCT `meta_key` FROM $table ORDER BY `meta_key`");
+
+                wp_cache_set($cache_key, $meta_keys);
+            }
+
+            foreach ($meta_keys as $metaValue) {
+                $metaData[$metaValue->meta_key] = $metaValue->meta_key;
+            }
+
+            $defaultMetaFields = apply_filters('retailcrm_change_default_meta_fields', $defaultMetaFields);
+
+            return array_diff($metaData, $defaultMetaFields);
+        }
+
+        /**
+         * Get retailcrm api client
+         *
+         * @return bool|WC_Retailcrm_Proxy
+         */
+        public function getApiClient()
+        {
+            if ($this->get_option('api_url') && $this->get_option('api_key')) {
+                return new WC_Retailcrm_Proxy(
+                    $this->get_option('api_url'),
+                    $this->get_option('api_key'),
+                    $this->get_option('corporate_enabled', 'no') === 'yes'
+                );
+            }
+
+            return false;
+        }
+
+        /**
+         * Deactivate module in marketplace retailCRM
+         *
+         * @return void
+         */
+        public function deactivate()
+        {
+            WC_Retailcrm_Logger::setHook(current_action());
+            $api_client = $this->getApiClient();
+            $clientId = get_option('retailcrm_client_id');
+
+            WC_Retailcrm_Plugin::integration_module($api_client, $clientId, false);
+            delete_option('retailcrm_active_in_crm');
+        }
+
+        /**
+         * @param $settings
+         *
+         * @return void
+         */
+        private function activate_integration($settings)
+        {
+            $client_id = get_option('retailcrm_client_id');
+
+            if (!$client_id) {
+                $client_id = uniqid();
+            }
+
+            $enabledCorporate = isset($settings['corporate_enabled']) ? $settings['corporate_enabled'] : 'no';
+
+            if ($settings['api_url'] && $settings['api_key']) {
+                $api_client = new WC_Retailcrm_Proxy(
+                    $settings['api_url'],
+                    $settings['api_key'],
+                    $enabledCorporate === 'yes'
+                );
+
+                $result = WC_Retailcrm_Plugin::integration_module($api_client, $client_id);
+
+                if ($result) {
+                    update_option('retailcrm_active_in_crm', true);
+                    update_option('retailcrm_client_id', $client_id);
+                }
+            }
+        }
+
+        private function getDefaultCrmOrderFields()
+        {
+            $fields = [
+                'default-crm-field#firstName' => esc_html__('firstName', 'woo-retailcrm'),
+                'default-crm-field#lastName' => esc_html__('lastName', 'woo-retailcrm'),
+                'default-crm-field#phone' => esc_html__('phone', 'woo-retailcrm'),
+                'default-crm-field#email' => esc_html__('email', 'woo-retailcrm'),
+                'default-crm-field#delivery#address#index' => esc_html__('addressIndex', 'woo-retailcrm'),
+                'default-crm-field#delivery#address#region' => esc_html__('addressRegion', 'woo-retailcrm'),
+                'default-crm-field#delivery#address#city' => esc_html__('addressCity', 'woo-retailcrm'),
+                'default-crm-field#delivery#address#text' => esc_html__('addressText', 'woo-retailcrm'),
+                'default-crm-field#customerComment' => esc_html__('customerComment', 'woo-retailcrm'),
+                'default-crm-field#managerComment' => esc_html__('managerComment', 'woo-retailcrm'),
+            ];
+
+            return apply_filters('woo_retailcrm_default_order_fields', $fields);
+        }
+
+        private function getDefaultCrmCustomerFields()
+        {
+            $fields = [
+                'default-crm-field#firstName' => esc_html__('firstName', 'woo-retailcrm'),
+                'default-crm-field#lastName' => esc_html__('lastName', 'woo-retailcrm'),
+                'default-crm-field#phones' => esc_html__('phone', 'woo-retailcrm'),
+                'default-crm-field#email' => esc_html__('email', 'woo-retailcrm'),
+                'default-crm-field#address#index' => esc_html__('addressIndex', 'woo-retailcrm'),
+                'default-crm-field#address#region' => esc_html__('addressRegion', 'woo-retailcrm'),
+                'default-crm-field#address#city' => esc_html__('addressCity', 'woo-retailcrm'),
+                'default-crm-field#address#text' => esc_html__('addressText', 'woo-retailcrm'),
+                'default-crm-field#tags' => esc_html__('tags', 'woo-retailcrm'),
+                'default-crm-field#birthday' => esc_html__('birthday', 'woo-retailcrm'),
+            ];
+
+            return apply_filters('woo_retailcrm_default_customer_fields', $fields);
+        }
+
+        private function activateModule()
+        {
+            $clientId = get_option('retailcrm_client_id');
+            $isActive = get_option('retailcrm_active_in_crm');
+
+            if ($this->apiClient && $clientId && !$isActive) {
+                WC_Retailcrm_Plugin::integration_module($this->apiClient, $clientId);
+                update_option('retailcrm_active_in_crm', true);
+            }
+        }
+
+        public function add_retailcrm_tracking_script() {
+            $trackerSettings = isset($this->settings['tracker_settings']) ? json_decode($this->settings['tracker_settings'], true) : null;
+            
+            if (isset($trackerSettings['tracker_enabled']) && $trackerSettings['tracker_enabled'] === true) {
+                $trackedEvents = $trackerSettings['tracked_events'];
+                $isPageView = in_array('page_view', $trackedEvents) ? 'page_view' : null;
+                $isCart = in_array('cart', $trackedEvents) ? 'cart' : null;
+                $isCartOpen = in_array('open_cart', $trackedEvents) ? 'open_cart' : null;
+
+                if (count($trackedEvents) > 0) {
+                    ?>
+                    <script>
+                        jQuery(function() {
+                            var pageView = <?php echo wp_json_encode($isPageView); ?>;
+                            var cart = <?php echo wp_json_encode($isCart); ?>;
+                            var openCart = <?php echo wp_json_encode($isCartOpen); ?>;
+
+                            startTrack(pageView, openCart, cart);
+                        });
+                    </script>
+                    <?php
+                }
+            }
+        }
+
+        private function accessLog($prefixNonce = ''): void
+        {
+            if ($prefixNonce !== '') {
+                echo wp_json_encode(['error' => esc_html__('Token is not valid', 'woo-retailcrm')]);
+
+                WC_Retailcrm_Logger::error(
+                    __METHOD__,
+                    sprintf(
+                        'Nonce token is missing or expired (%s)',
+                        $prefixNonce
+                    )
+                );
+            } else {
+                echo wp_json_encode(['error' => esc_html__('Access denied', 'woo-retailcrm')]);
+
+                WC_Retailcrm_Logger::error(
+                    __METHOD__,
+                    sprintf(
+                        'User does not have permission to call method. User role: %s',
+                        implode(', ', wp_get_current_user()->roles)
+                    )
+                );
+            }
+        }
+    }
+}   
