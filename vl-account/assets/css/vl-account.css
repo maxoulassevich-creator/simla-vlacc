@@ -1,0 +1,1504 @@
+/**
+ * VL Account — стили форм входа/регистрации и личного кабинета.
+ *
+ * Оформление намеренно минималистичное и наследует шрифты темы:
+ * тонкие рамки, прямые углы, акцент на красной кнопке, строчные подписи.
+ * Цвета настраиваются в админке (переменные --vl-accent / --vl-dark).
+ */
+
+.vl-auth,
+.vl-account,
+.vl-form,
+.vl-drawer {
+	--vl-accent: #d40000;
+	--vl-dark: #2f2f2f;
+	--vl-border: #e4e4e4;
+	--vl-border-strong: #bdbdbd;
+	--vl-text: #333;
+	--vl-muted: #8a8a8a;
+	--vl-bg-soft: #f7f7f7;
+	--vl-radius: 0px;
+	--vl-error: #d40000;
+	--vl-success: #2a9d3f;
+
+	color: var(--vl-text);
+	font-family: inherit;
+	box-sizing: border-box;
+}
+
+.vl-auth *,
+.vl-account *,
+.vl-form *,
+.vl-drawer * {
+	box-sizing: border-box;
+}
+
+/* Атрибут hidden должен побеждать наши display у классов. */
+.vl-auth [hidden],
+.vl-account [hidden],
+.vl-form [hidden],
+.vl-drawer [hidden] {
+	display: none !important;
+}
+
+/* --------------------------------------------------
+   Выдвижная панель входа (справа, на всю высоту)
+   -------------------------------------------------- */
+
+.vl-drawer[hidden] {
+	display: none;
+}
+
+.vl-drawer {
+	position: fixed;
+	top: 0;
+	right: 0;
+	bottom: 0;
+	left: 0;
+	z-index: 999990;
+}
+
+.vl-drawer__overlay {
+	position: absolute;
+	inset: 0;
+	background: rgba(0, 0, 0, 0.45);
+	opacity: 0;
+	transition: opacity 0.3s ease;
+	cursor: pointer;
+}
+
+.vl-drawer.is-open .vl-drawer__overlay {
+	opacity: 1;
+}
+
+.vl-drawer__panel {
+	position: absolute;
+	top: 0;
+	right: 0;
+	width: 440px;
+	max-width: 100%;
+	height: 100%;
+	height: 100dvh;
+	background: #fff;
+	box-shadow: -6px 0 40px rgba(0, 0, 0, 0.12);
+	transform: translateX(100%);
+	transition: transform 0.32s cubic-bezier(0.22, 0.61, 0.36, 1);
+	overflow-y: auto;
+	-webkit-overflow-scrolling: touch;
+	display: flex;
+	flex-direction: column;
+}
+
+.vl-drawer.is-open .vl-drawer__panel {
+	transform: translateX(0);
+}
+
+.vl-drawer__inner {
+	padding: 56px 40px 40px;
+	flex: 1 1 auto;
+}
+
+.vl-drawer__close {
+	position: absolute;
+	top: 14px;
+	right: 14px;
+	width: 40px;
+	height: 40px;
+	border: 0;
+	background: none;
+	cursor: pointer;
+	padding: 0;
+	z-index: 2;
+	color: var(--vl-text);
+}
+
+.vl-drawer__close span {
+	position: relative;
+	display: block;
+	width: 18px;
+	height: 18px;
+	margin: 0 auto;
+}
+
+.vl-drawer__close span::before,
+.vl-drawer__close span::after {
+	content: "";
+	position: absolute;
+	top: 8px;
+	left: 0;
+	width: 18px;
+	height: 1px;
+	background: currentColor;
+	transition: background-color 0.2s;
+}
+
+.vl-drawer__close span::before {
+	transform: rotate(45deg);
+}
+
+.vl-drawer__close span::after {
+	transform: rotate(-45deg);
+}
+
+.vl-drawer__close:hover span::before,
+.vl-drawer__close:hover span::after {
+	background: var(--vl-accent);
+}
+
+.vl-drawer__title {
+	font-size: 16px;
+	font-weight: 500;
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+	margin: 0 0 12px;
+	color: var(--vl-text);
+}
+
+.vl-drawer__message {
+	font-size: 13px;
+	line-height: 1.6;
+	color: var(--vl-muted);
+	margin: 0 0 26px;
+	padding-bottom: 22px;
+	border-bottom: 1px solid var(--vl-border);
+}
+
+.vl-drawer__message[hidden] {
+	display: none;
+}
+
+.vl-drawer__body .vl-auth {
+	max-width: none;
+}
+
+/* Блокировка прокрутки страницы под панелью. */
+body.vl-drawer-open {
+	overflow: hidden;
+}
+
+@media (max-width: 600px) {
+	.vl-drawer__panel {
+		width: 100%;
+	}
+
+	.vl-drawer__inner {
+		padding: 52px 20px 32px;
+	}
+
+	.vl-drawer__title {
+		font-size: 15px;
+	}
+}
+
+@media (min-width: 601px) and (max-width: 1024px) {
+	.vl-drawer__panel {
+		width: 400px;
+	}
+
+	.vl-drawer__inner {
+		padding: 56px 30px 34px;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.vl-drawer__panel,
+	.vl-drawer__overlay {
+		transition: none;
+	}
+}
+
+/* --------------------------------------------------
+   Формы
+   -------------------------------------------------- */
+
+.vl-auth {
+	max-width: 460px;
+	margin: 0 auto;
+	width: 100%;
+}
+
+.vl-auth__title {
+	font-size: 20px;
+	font-weight: 500;
+	margin: 0 0 20px;
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+}
+
+.vl-auth__tabs {
+	display: flex;
+	gap: 24px;
+	margin-bottom: 24px;
+	border-bottom: 1px solid var(--vl-border);
+}
+
+.vl-auth__tab {
+	background: none;
+	border: 0;
+	border-bottom: 2px solid transparent;
+	padding: 0 0 10px;
+	margin: 0;
+	font: inherit;
+	font-size: 13px;
+	letter-spacing: 0.06em;
+	color: var(--vl-muted);
+	cursor: pointer;
+	transition: color 0.2s, border-color 0.2s;
+}
+
+.vl-auth__tab:hover {
+	color: var(--vl-text);
+}
+
+.vl-auth__tab.is-active {
+	color: var(--vl-text);
+	border-bottom-color: var(--vl-accent);
+}
+
+.vl-auth__pane {
+	display: none;
+}
+
+.vl-auth__pane.is-active {
+	display: block;
+}
+
+.vl-step {
+	display: none;
+}
+
+.vl-step.is-active {
+	display: block;
+}
+
+.vl-form__title {
+	font-size: 16px;
+	font-weight: 500;
+	margin: 0 0 16px;
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+}
+
+.vl-field {
+	position: relative;
+	margin-bottom: 18px;
+}
+
+.vl-label {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	font-size: 13px;
+	line-height: 1.3;
+	color: #4a4a4a;
+	margin-bottom: 7px;
+}
+
+.vl-label .vl-icon {
+	color: var(--vl-dark);
+	flex: 0 0 auto;
+}
+
+.vl-req {
+	color: var(--vl-accent);
+}
+
+.vl-input {
+	width: 100%;
+	height: 44px;
+	padding: 10px 14px;
+	border: 1px solid var(--vl-border);
+	border-radius: var(--vl-radius);
+	background: #fff;
+	font: inherit;
+	font-size: 14px;
+	color: var(--vl-text);
+	transition: border-color 0.2s;
+	appearance: none;
+}
+
+.vl-input:focus {
+	outline: none;
+	border-color: var(--vl-border-strong);
+}
+
+.vl-input[readonly] {
+	background: var(--vl-bg-soft);
+	color: var(--vl-muted);
+}
+
+.vl-input--code {
+	letter-spacing: 0.4em;
+	font-size: 18px;
+	text-align: center;
+	max-width: 220px;
+}
+
+.vl-input.is-error {
+	border-color: var(--vl-error);
+}
+
+.vl-inline {
+	display: flex;
+	gap: 8px;
+	align-items: stretch;
+	flex-wrap: wrap;
+}
+
+.vl-inline .vl-input {
+	flex: 1 1 200px;
+	min-width: 0;
+}
+
+.vl-inline .vl-btn {
+	flex: 0 0 auto;
+	white-space: nowrap;
+}
+
+.vl-field__error {
+	display: none;
+	margin-top: 6px;
+	font-size: 12px;
+	color: var(--vl-error);
+}
+
+.vl-field__error.is-visible {
+	display: block;
+}
+
+.vl-field__hint {
+	display: block;
+	margin-top: 6px;
+	font-size: 12px;
+	color: var(--vl-muted);
+	line-height: 1.4;
+}
+
+.vl-note {
+	font-size: 13px;
+	line-height: 1.5;
+	color: var(--vl-muted);
+	margin: 0 0 18px;
+}
+
+/* Текст над полем телефона в форме входа. */
+.vl-form__intro {
+	font-size: 13px;
+	line-height: 1.6;
+	color: var(--vl-text);
+	margin: 0 0 20px;
+}
+
+/* Согласие мелким шрифтом под кнопкой «получить код». */
+.vl-form__consent {
+	font-size: 11px;
+	line-height: 1.5;
+	color: var(--vl-muted);
+	margin: 12px 0 0;
+}
+
+.vl-form__consent a {
+	color: inherit;
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+
+.vl-consents--compact {
+	margin: 0 0 18px;
+}
+
+.vl-consents--compact .vl-check {
+	font-size: 12px;
+}
+
+/* Плашка «e-mail ждёт подтверждения». */
+.vl-pending-email {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	align-items: flex-start;
+}
+
+.vl-pending-email .vl-form {
+	margin: 0;
+}
+
+.vl-pending-email .vl-form__messages:empty {
+	display: none;
+}
+
+.vl-step__hint {
+	font-size: 13px;
+	line-height: 1.5;
+	color: var(--vl-text);
+	margin: 0 0 16px;
+}
+
+.vl-verified {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	font-size: 11px;
+	color: var(--vl-success);
+	text-transform: lowercase;
+}
+
+.vl-hp {
+	position: absolute !important;
+	left: -9999px !important;
+	width: 1px !important;
+	height: 1px !important;
+	opacity: 0 !important;
+}
+
+.vl-eye {
+	position: absolute;
+	right: 10px;
+	bottom: 11px;
+	width: 22px;
+	height: 22px;
+	border: 0;
+	background: none;
+	cursor: pointer;
+	padding: 0;
+	opacity: 0.45;
+}
+
+.vl-eye::before {
+	content: "";
+	display: block;
+	width: 18px;
+	height: 18px;
+	margin: 2px;
+	background: currentColor;
+	-webkit-mask: no-repeat center / contain url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 5C6.5 5 2.7 9.6 1.5 12c1.2 2.4 5 7 10.5 7s9.3-4.6 10.5-7c-1.2-2.4-5-7-10.5-7zm0 11a4 4 0 110-8 4 4 0 010 8z'/%3E%3C/svg%3E");
+	mask: no-repeat center / contain url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 5C6.5 5 2.7 9.6 1.5 12c1.2 2.4 5 7 10.5 7s9.3-4.6 10.5-7c-1.2-2.4-5-7-10.5-7zm0 11a4 4 0 110-8 4 4 0 010 8z'/%3E%3C/svg%3E");
+}
+
+.vl-eye:hover {
+	opacity: 0.8;
+}
+
+/* --------------------------------------------------
+   Кнопки
+   -------------------------------------------------- */
+
+.vl-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	min-height: 48px;
+	padding: 12px 28px;
+	border: 1px solid transparent;
+	border-radius: var(--vl-radius);
+	font: inherit;
+	font-size: 12px;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	text-decoration: none;
+	cursor: pointer;
+	transition: opacity 0.2s, background-color 0.2s, color 0.2s;
+	text-align: center;
+}
+
+.vl-btn:disabled,
+.vl-btn.is-loading {
+	opacity: 0.55;
+	cursor: default;
+	pointer-events: none;
+}
+
+.vl-btn--primary {
+	background: var(--vl-accent);
+	color: #fff;
+}
+
+.vl-btn--primary:hover {
+	opacity: 0.88;
+	color: #fff;
+}
+
+.vl-btn--dark {
+	background: var(--vl-dark);
+	color: #fff;
+}
+
+.vl-btn--dark:hover {
+	opacity: 0.88;
+	color: #fff;
+}
+
+.vl-btn--outline {
+	background: #fff;
+	color: var(--vl-text);
+	border-color: var(--vl-border-strong);
+	min-height: 44px;
+	padding: 10px 18px;
+}
+
+.vl-btn--outline:hover {
+	border-color: var(--vl-dark);
+}
+
+.vl-btn--block {
+	display: flex;
+	width: 100%;
+}
+
+.vl-btn--sm {
+	min-height: 38px;
+	padding: 8px 16px;
+	font-size: 11px;
+}
+
+.vl-actions {
+	display: flex;
+	gap: 12px;
+	margin-top: 22px;
+	flex-wrap: wrap;
+}
+
+.vl-actions .vl-btn {
+	flex: 1 1 180px;
+}
+
+.vl-links {
+	margin: 14px 0 0;
+	display: flex;
+	gap: 18px;
+	flex-wrap: wrap;
+	font-size: 13px;
+}
+
+.vl-links--footer {
+	margin-top: 18px;
+	border-top: 1px solid var(--vl-border);
+	padding-top: 14px;
+}
+
+.vl-link {
+	background: none;
+	border: 0;
+	padding: 0;
+	margin: 0;
+	font: inherit;
+	font-size: 13px;
+	color: var(--vl-text);
+	text-decoration: underline;
+	text-underline-offset: 3px;
+	cursor: pointer;
+}
+
+.vl-link:hover {
+	color: var(--vl-accent);
+}
+
+.vl-link--muted {
+	color: var(--vl-muted);
+}
+
+/* --------------------------------------------------
+   Согласия
+   -------------------------------------------------- */
+
+.vl-consents {
+	margin: 22px 0 4px;
+	display: grid;
+	gap: 12px;
+}
+
+.vl-check {
+	display: flex;
+	align-items: flex-start;
+	gap: 10px;
+	cursor: pointer;
+	font-size: 12px;
+	line-height: 1.5;
+	color: #555;
+}
+
+.vl-check input {
+	position: absolute;
+	opacity: 0;
+	width: 1px;
+	height: 1px;
+}
+
+.vl-check__box {
+	flex: 0 0 auto;
+	width: 16px;
+	height: 16px;
+	margin-top: 1px;
+	border: 1px solid var(--vl-border-strong);
+	border-radius: var(--vl-radius);
+	background: #fff;
+	position: relative;
+}
+
+.vl-check input:checked + .vl-check__box::after {
+	content: "";
+	position: absolute;
+	left: 4px;
+	top: 0;
+	width: 5px;
+	height: 10px;
+	border: solid var(--vl-accent);
+	border-width: 0 2px 2px 0;
+	transform: rotate(45deg);
+}
+
+.vl-check input:focus-visible + .vl-check__box {
+	outline: 2px solid var(--vl-accent);
+	outline-offset: 2px;
+}
+
+.vl-check__text a {
+	color: inherit;
+	text-decoration: underline;
+}
+
+/* --------------------------------------------------
+   Сообщения
+   -------------------------------------------------- */
+
+.vl-message {
+	padding: 12px 16px;
+	margin-bottom: 18px;
+	font-size: 13px;
+	line-height: 1.5;
+	border-left: 3px solid var(--vl-muted);
+	background: var(--vl-bg-soft);
+}
+
+.vl-message--error {
+	border-left-color: var(--vl-error);
+	background: #fdf2f2;
+	color: #8c1c1c;
+}
+
+.vl-message--success {
+	border-left-color: var(--vl-success);
+	background: #f1f9f2;
+	color: #1f6b2e;
+}
+
+.vl-message--info {
+	border-left-color: var(--vl-dark);
+}
+
+/* --------------------------------------------------
+   Кабинет
+   -------------------------------------------------- */
+
+.vl-account {
+	width: 100%;
+}
+
+.vl-account__head {
+	display: flex;
+	justify-content: space-between;
+	align-items: baseline;
+	gap: 16px;
+	flex-wrap: wrap;
+	padding-bottom: 18px;
+	margin-bottom: 24px;
+	border-bottom: 1px solid var(--vl-border);
+}
+
+.vl-account__hello {
+	font-size: 13px;
+	color: var(--vl-muted);
+}
+
+.vl-account__name {
+	font-size: 20px;
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	margin-left: 6px;
+}
+
+.vl-account__contacts {
+	display: flex;
+	gap: 18px;
+	font-size: 13px;
+	color: var(--vl-muted);
+	flex-wrap: wrap;
+}
+
+.vl-account__layout {
+	display: grid;
+	grid-template-columns: 220px 1fr;
+	gap: 40px;
+	align-items: start;
+}
+
+.vl-account__title {
+	font-size: 16px;
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	margin: 0 0 22px;
+	font-weight: 500;
+}
+
+.vl-account__toggle {
+	display: none;
+	width: 100%;
+	align-items: center;
+	justify-content: space-between;
+	padding: 14px 16px;
+	margin-bottom: 16px;
+	border: 1px solid var(--vl-border);
+	background: #fff;
+	font: inherit;
+	font-size: 13px;
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	cursor: pointer;
+}
+
+.vl-account__toggle-icon {
+	width: 10px;
+	height: 10px;
+	border-right: 1px solid var(--vl-text);
+	border-bottom: 1px solid var(--vl-text);
+	transform: rotate(45deg);
+	transition: transform 0.2s;
+}
+
+.vl-account__toggle[aria-expanded="true"] .vl-account__toggle-icon {
+	transform: rotate(-135deg);
+}
+
+.vl-menu__list {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+.vl-menu__item {
+	border-bottom: 1px solid var(--vl-border);
+}
+
+.vl-menu__item:last-child {
+	border-bottom: 0;
+}
+
+.vl-menu__link {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 12px 0;
+	font-size: 13px;
+	color: var(--vl-text);
+	text-decoration: none;
+	transition: color 0.2s;
+}
+
+.vl-menu__link:hover {
+	color: var(--vl-accent);
+}
+
+.vl-menu__icon {
+	display: inline-flex;
+	color: var(--vl-muted);
+}
+
+.vl-menu__item.is-active .vl-menu__link {
+	color: var(--vl-accent);
+}
+
+.vl-menu__item.is-active .vl-menu__icon {
+	color: var(--vl-accent);
+}
+
+.vl-menu__count {
+	margin-left: auto;
+	font-size: 11px;
+	color: var(--vl-muted);
+}
+
+.vl-menu__item--logout .vl-menu__link {
+	color: var(--vl-muted);
+}
+
+/* Карточки сводки */
+
+.vl-cards {
+	display: grid;
+	grid-template-columns: repeat(4, 1fr);
+	gap: 14px;
+	margin-bottom: 32px;
+}
+
+.vl-card {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	padding: 20px 18px;
+	border: 1px solid var(--vl-border);
+	text-decoration: none;
+	color: var(--vl-text);
+	transition: border-color 0.2s;
+}
+
+.vl-card:hover {
+	border-color: var(--vl-dark);
+}
+
+.vl-card__value {
+	font-size: 26px;
+	line-height: 1;
+}
+
+.vl-card__label {
+	font-size: 12px;
+	color: var(--vl-muted);
+}
+
+.vl-subtitle {
+	font-size: 13px;
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+	color: var(--vl-muted);
+	margin: 32px 0 14px;
+	font-weight: 500;
+}
+
+.vl-dashboard .vl-subtitle:first-of-type {
+	margin-top: 0;
+}
+
+/* Таблицы */
+
+.vl-table-wrap {
+	overflow-x: auto;
+}
+
+.vl-table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 13px;
+}
+
+.vl-table th {
+	text-align: left;
+	font-weight: 500;
+	font-size: 11px;
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	color: var(--vl-muted);
+	padding: 10px 12px 10px 0;
+	border-bottom: 1px solid var(--vl-border);
+}
+
+.vl-table td {
+	padding: 14px 12px 14px 0;
+	border-bottom: 1px solid var(--vl-border);
+	vertical-align: top;
+}
+
+.vl-table a {
+	color: var(--vl-text);
+	text-decoration: underline;
+	text-underline-offset: 3px;
+}
+
+.vl-table a:hover {
+	color: var(--vl-accent);
+}
+
+.vl-table__actions {
+	text-align: right;
+}
+
+.vl-status {
+	display: inline-block;
+	font-size: 11px;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+	padding: 3px 8px;
+	background: var(--vl-bg-soft);
+	color: #555;
+}
+
+.vl-status--processing,
+.vl-status--on-hold {
+	background: #fff5e5;
+	color: #8a5a00;
+}
+
+.vl-status--completed {
+	background: #f1f9f2;
+	color: #1f6b2e;
+}
+
+.vl-status--cancelled,
+.vl-status--failed,
+.vl-status--refunded {
+	background: #fdf2f2;
+	color: #8c1c1c;
+}
+
+.vl-negative {
+	color: var(--vl-error);
+}
+
+.vl-positive {
+	color: var(--vl-success);
+}
+
+/* Заказ */
+
+.vl-order__head {
+	display: flex;
+	align-items: center;
+	gap: 14px;
+	flex-wrap: wrap;
+	margin-bottom: 18px;
+}
+
+.vl-order__head .vl-subtitle {
+	margin: 0;
+	font-size: 15px;
+	color: var(--vl-text);
+	text-transform: none;
+	letter-spacing: 0;
+}
+
+.vl-order__date {
+	font-size: 12px;
+	color: var(--vl-muted);
+}
+
+.vl-order__addresses {
+	display: grid;
+	grid-template-columns: repeat(2, 1fr);
+	gap: 30px;
+	margin-top: 28px;
+}
+
+.vl-order__address h4 {
+	font-size: 11px;
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+	color: var(--vl-muted);
+	margin: 0 0 8px;
+	font-weight: 500;
+}
+
+.vl-order__address p {
+	font-size: 13px;
+	line-height: 1.6;
+	margin: 0 0 6px;
+}
+
+/* Избранное */
+
+.vl-products {
+	display: grid;
+	grid-template-columns: repeat(3, 1fr);
+	gap: 24px;
+}
+
+.vl-product__image {
+	display: block;
+	margin-bottom: 12px;
+}
+
+.vl-product__image img {
+	width: 100%;
+	height: auto;
+	display: block;
+}
+
+.vl-product__title {
+	display: block;
+	font-size: 13px;
+	color: var(--vl-text);
+	text-decoration: none;
+	margin-bottom: 6px;
+}
+
+.vl-product__title:hover {
+	color: var(--vl-accent);
+}
+
+.vl-product__price {
+	font-size: 13px;
+	margin-bottom: 12px;
+}
+
+.vl-product__price del {
+	color: var(--vl-muted);
+	margin-right: 6px;
+}
+
+.vl-product__actions {
+	display: flex;
+	align-items: center;
+	gap: 14px;
+	flex-wrap: wrap;
+}
+
+.vl-product__stock {
+	font-size: 12px;
+	color: var(--vl-muted);
+}
+
+/* Кнопка избранного */
+
+.vl-wishlist-btn {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	background: none;
+	border: 0;
+	padding: 6px 0;
+	font: inherit;
+	font-size: 12px;
+	letter-spacing: 0.04em;
+	color: var(--vl-text);
+	cursor: pointer;
+}
+
+.vl-wishlist-btn .vl-icon {
+	color: var(--vl-muted);
+	transition: color 0.2s, transform 0.2s;
+}
+
+.vl-wishlist-btn:hover .vl-icon {
+	color: var(--vl-accent);
+}
+
+.vl-wishlist-btn.is-active .vl-icon {
+	color: var(--vl-accent);
+	transform: scale(1.08);
+}
+
+/* Промокоды */
+
+.vl-promo-banner {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	gap: 16px;
+	flex-wrap: wrap;
+	padding: 18px 20px;
+	border: 1px dashed var(--vl-accent);
+	margin-bottom: 30px;
+}
+
+.vl-promo-banner__label {
+	display: block;
+	font-size: 11px;
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+	color: var(--vl-muted);
+	margin-bottom: 4px;
+}
+
+.vl-promo-banner__code,
+.vl-promo__code {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	font-size: 18px;
+	letter-spacing: 0.12em;
+	cursor: pointer;
+}
+
+.vl-promo-banner__desc {
+	font-size: 13px;
+	color: var(--vl-muted);
+}
+
+.vl-promos {
+	display: grid;
+	gap: 14px;
+}
+
+.vl-promo {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	gap: 16px;
+	flex-wrap: wrap;
+	padding: 18px 20px;
+	border: 1px solid var(--vl-border);
+}
+
+.vl-promo.is-expired {
+	opacity: 0.55;
+}
+
+.vl-promo__desc {
+	display: block;
+	font-size: 13px;
+	color: var(--vl-muted);
+	margin-top: 4px;
+}
+
+.vl-promo__status {
+	font-size: 12px;
+	color: var(--vl-muted);
+}
+
+/* Бонусы */
+
+.vl-bonus__balance {
+	display: flex;
+	align-items: baseline;
+	gap: 10px;
+	padding: 24px;
+	background: var(--vl-bg-soft);
+	margin-bottom: 8px;
+}
+
+.vl-bonus__value {
+	font-size: 34px;
+	line-height: 1;
+}
+
+.vl-bonus__label {
+	font-size: 13px;
+	color: var(--vl-muted);
+}
+
+/* Информационные строки */
+
+.vl-info-list {
+	border-top: 1px solid var(--vl-border);
+	margin-bottom: 10px;
+}
+
+.vl-info-list__row {
+	display: flex;
+	justify-content: space-between;
+	gap: 16px;
+	padding: 14px 0;
+	border-bottom: 1px solid var(--vl-border);
+	font-size: 13px;
+	flex-wrap: wrap;
+}
+
+.vl-info-list__label {
+	color: var(--vl-muted);
+}
+
+/* Пустые состояния */
+
+.vl-empty {
+	padding: 34px 0;
+	text-align: center;
+}
+
+.vl-empty p {
+	font-size: 14px;
+	color: var(--vl-muted);
+	margin: 0 0 18px;
+	line-height: 1.6;
+}
+
+.vl-box {
+	padding: 24px;
+	border: 1px solid var(--vl-border);
+	text-align: center;
+}
+
+.vl-box__title {
+	font-size: 14px;
+	margin: 0 0 16px;
+}
+
+.vl-box__actions {
+	display: flex;
+	gap: 12px;
+	justify-content: center;
+	flex-wrap: wrap;
+	margin: 0;
+}
+
+/* Иконки в шапке */
+
+.vl-account-icons {
+	display: inline-flex;
+	align-items: center;
+	gap: 14px;
+}
+
+.vl-account-icons__link {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	color: inherit;
+	text-decoration: none;
+	line-height: 1;
+}
+
+.vl-account-icons__link:hover {
+	color: var(--vl-accent, #d40000);
+}
+
+.vl-account-icons__label {
+	font-size: 12px;
+	letter-spacing: 0.04em;
+}
+
+.vl-wishlist-count {
+	font-size: 11px;
+}
+
+.vl-checkout-notice {
+	font-size: 13px;
+	line-height: 1.5;
+	color: #666;
+	background: #f7f7f7;
+	padding: 12px 16px;
+	margin: 12px 0 0;
+}
+
+/* --------------------------------------------------
+   Адаптив
+   -------------------------------------------------- */
+
+@media (max-width: 1024px) {
+	.vl-cards {
+		grid-template-columns: repeat(2, 1fr);
+	}
+
+	.vl-products {
+		grid-template-columns: repeat(2, 1fr);
+	}
+}
+
+@media (max-width: 782px) {
+	.vl-account__layout {
+		grid-template-columns: 1fr;
+		gap: 0;
+	}
+
+	.vl-account__toggle {
+		display: flex;
+	}
+
+	.vl-account__side {
+		display: none;
+		margin-bottom: 24px;
+		border: 1px solid var(--vl-border);
+		padding: 0 16px;
+	}
+
+	.vl-account__side.is-open {
+		display: block;
+	}
+
+	.vl-account__head {
+		flex-direction: column;
+		gap: 6px;
+	}
+
+	.vl-account__name {
+		margin-left: 0;
+		display: block;
+	}
+
+	.vl-actions .vl-btn {
+		flex: 1 1 100%;
+	}
+
+	.vl-order__addresses {
+		grid-template-columns: 1fr;
+		gap: 20px;
+	}
+
+	/* Таблицы превращаются в карточки */
+	.vl-table thead {
+		display: none;
+	}
+
+	.vl-table,
+	.vl-table tbody,
+	.vl-table tr,
+	.vl-table td {
+		display: block;
+		width: 100%;
+	}
+
+	.vl-table tr {
+		padding: 14px 0;
+		border-bottom: 1px solid var(--vl-border);
+	}
+
+	.vl-table td {
+		border: 0;
+		padding: 4px 0;
+		display: flex;
+		justify-content: space-between;
+		gap: 16px;
+		text-align: right;
+	}
+
+	.vl-table td::before {
+		content: attr(data-label);
+		font-size: 11px;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: var(--vl-muted);
+		text-align: left;
+	}
+
+	.vl-table tfoot th {
+		border: 0;
+		padding: 4px 0;
+	}
+
+	.vl-table__actions {
+		text-align: left;
+	}
+}
+
+@media (max-width: 520px) {
+	.vl-cards {
+		grid-template-columns: repeat(2, 1fr);
+		gap: 10px;
+	}
+
+	.vl-products {
+		grid-template-columns: 1fr;
+	}
+
+	.vl-card {
+		padding: 16px 14px;
+	}
+
+	.vl-card__value {
+		font-size: 22px;
+	}
+}
+
+/* --------------------------------------------------
+   Защита от стилей темы
+   --------------------------------------------------
+   Темы и конструкторы (Elementor, WooCommerce) задают оформление
+   кнопкам, полям и ссылкам селекторами вроде `.elementor button`
+   или `.woocommerce input` — по специфичности они выигрывают
+   у одиночного класса. Дублируем ключевые правила с более высокой
+   специфичностью, чтобы формы плагина выглядели одинаково на любой теме.
+   -------------------------------------------------- */
+
+.vl-auth .vl-btn,
+.vl-account .vl-btn,
+.vl-drawer .vl-btn,
+.vl-form .vl-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-height: 48px;
+	padding: 12px 28px;
+	border: 1px solid transparent;
+	border-radius: var(--vl-radius);
+	font-size: 12px;
+	line-height: 1.2;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	text-decoration: none;
+	box-shadow: none;
+	width: auto;
+}
+
+.vl-auth .vl-btn--block,
+.vl-account .vl-btn--block,
+.vl-drawer .vl-btn--block,
+.vl-form .vl-btn--block {
+	display: flex;
+	width: 100%;
+}
+
+.vl-auth .vl-btn--primary,
+.vl-account .vl-btn--primary,
+.vl-drawer .vl-btn--primary,
+.vl-form .vl-btn--primary {
+	background: var(--vl-accent);
+	background-color: var(--vl-accent);
+	color: #fff;
+	border-color: transparent;
+}
+
+.vl-auth .vl-btn--primary:hover,
+.vl-account .vl-btn--primary:hover,
+.vl-drawer .vl-btn--primary:hover,
+.vl-form .vl-btn--primary:hover {
+	background: var(--vl-accent);
+	background-color: var(--vl-accent);
+	color: #fff;
+	opacity: 0.88;
+}
+
+.vl-auth .vl-btn--dark,
+.vl-account .vl-btn--dark,
+.vl-drawer .vl-btn--dark,
+.vl-form .vl-btn--dark {
+	background: var(--vl-dark);
+	background-color: var(--vl-dark);
+	color: #fff;
+	border-color: transparent;
+}
+
+.vl-auth .vl-btn--outline,
+.vl-account .vl-btn--outline,
+.vl-drawer .vl-btn--outline,
+.vl-form .vl-btn--outline {
+	background: #fff;
+	background-color: #fff;
+	color: var(--vl-text);
+	border-color: var(--vl-border-strong);
+	min-height: 44px;
+	padding: 10px 18px;
+}
+
+.vl-auth .vl-input,
+.vl-account .vl-input,
+.vl-drawer .vl-input,
+.vl-form .vl-input {
+	width: 100%;
+	height: 44px;
+	min-height: 44px;
+	padding: 10px 14px;
+	border: 1px solid var(--vl-border);
+	border-radius: var(--vl-radius);
+	background: #fff;
+	background-color: #fff;
+	font-size: 14px;
+	line-height: 1.3;
+	color: var(--vl-text);
+	box-shadow: none;
+	margin: 0;
+}
+
+.vl-auth .vl-link,
+.vl-account .vl-link,
+.vl-drawer .vl-link,
+.vl-form .vl-link {
+	background: none;
+	border: 0;
+	padding: 0;
+	min-height: 0;
+	font-size: 13px;
+	text-transform: none;
+	letter-spacing: 0;
+	color: var(--vl-text);
+	box-shadow: none;
+	width: auto;
+}
+
+.vl-auth .vl-check__box,
+.vl-account .vl-check__box,
+.vl-drawer .vl-check__box,
+.vl-form .vl-check__box {
+	width: 16px;
+	height: 16px;
+	min-width: 16px;
+	border: 1px solid var(--vl-border-strong);
+	background: #fff;
+}
