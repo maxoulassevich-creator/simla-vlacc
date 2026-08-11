@@ -15,6 +15,17 @@ $vl_all      = VL_Account_Orders::get_user_orders( $user_id, 100 );
 $vl_wishlist = VL_Account_Wishlist::count();
 $vl_bonus    = VL_Account_Bonus::get_balance( $user_id );
 $vl_promo    = VL_Account_Promo::get_user_codes( $user_id );
+
+// Уровень программы лояльности может давать не баллы, а постоянную скидку.
+$vl_lp_discount = 0;
+
+if ( class_exists( 'VL_Account_RetailCRM_Loyalty' ) && VL_Account_RetailCRM::loyalty_active() ) {
+	$vl_lp = VL_Account_RetailCRM::account( $user_id );
+
+	if ( 'active' === $vl_lp['status'] && VL_Account_RetailCRM_Loyalty::is_discount_level( $vl_lp ) ) {
+		$vl_lp_discount = (float) $vl_lp['level']['size'];
+	}
+}
 ?>
 <div class="vl-dashboard">
 
@@ -30,8 +41,13 @@ $vl_promo    = VL_Account_Promo::get_user_codes( $user_id );
 		</a>
 
 		<a class="vl-card" href="<?php echo esc_url( VL_Account_Router::url( 'bonus' ) ); ?>">
-			<span class="vl-card__value"><?php echo esc_html( number_format_i18n( $vl_bonus ) ); ?></span>
-			<span class="vl-card__label"><?php esc_html_e( 'баллов', 'vl-account' ); ?></span>
+			<?php if ( $vl_lp_discount > 0 ) : ?>
+				<span class="vl-card__value"><?php echo esc_html( number_format_i18n( $vl_lp_discount, 0 ) ); ?>%</span>
+				<span class="vl-card__label"><?php esc_html_e( 'скидка', 'vl-account' ); ?></span>
+			<?php else : ?>
+				<span class="vl-card__value"><?php echo esc_html( number_format_i18n( $vl_bonus ) ); ?></span>
+				<span class="vl-card__label"><?php esc_html_e( 'баллов', 'vl-account' ); ?></span>
+			<?php endif; ?>
 		</a>
 
 		<a class="vl-card" href="<?php echo esc_url( VL_Account_Router::url( 'promo' ) ); ?>">

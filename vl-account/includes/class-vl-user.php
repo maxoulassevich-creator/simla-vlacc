@@ -301,6 +301,8 @@ class VL_Account_User {
 		if ( isset( $consents['marketing'] ) ) {
 			update_user_meta( $user_id, 'vlacc_consent_marketing', $consents['marketing'] ? 1 : 0 );
 		}
+
+		do_action( 'vlacc_consents_saved', $user_id, $consents );
 	}
 
 	/**

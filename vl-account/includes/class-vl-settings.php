@@ -118,6 +118,23 @@ class VL_Account_Settings {
 			'button_color'        => '#2f2f2f',
 			'radius'              => 0,
 
+			// Интеграция с RetailCRM / Simla.com.
+			'crm_enabled'          => 1,        // Общий выключатель интеграции.
+			'crm_bonus_source'     => 'auto',   // auto | crm | local — откуда брать баланс баллов.
+			'crm_loyalty_ui'       => 1,        // Вступление и активация ПЛ в разделе «Бонусы».
+			'crm_hide_wc_loyalty'  => 1,        // Убрать дублирующий раздел Simla в меню WooCommerce.
+			'crm_cache_ttl'        => 300,      // Сек. кэширования ответов CRM.
+			'crm_sync_customer'    => 1,        // Досылать телефон и согласия покупателя в CRM.
+			'crm_sync_consents'    => 1,        // Согласие на рассылку → subscribed в CRM.
+			'crm_skip_tech_email'  => 1,        // Не отправлять технические адреса @phone.*.
+			'crm_order_priority'   => 1,        // Привязать заказ к покупателю до выгрузки в CRM.
+			'crm_wishlist_field'   => '',       // Код польз. поля покупателя в CRM для избранного.
+			'crm_promo_hide_loyalty' => 1,      // Прятать служебные купоны loyalty* в «Промокодах».
+			'crm_promo_combine'    => 1,        // Промокод регистрации совместим с списанием баллов.
+			'crm_cart_widget'      => 'replace',// replace | add | off — блок списания баллов в корзине.
+			'crm_credit_top'       => 1,        // Строка «начислим баллов» рядом с итогом.
+			'crm_fix_coupon_email' => 1,        // Чинить купоны с ограничением на технический e-mail.
+
 			// Прочее.
 			'logging'             => 1,
 			'no_cache'            => 1,

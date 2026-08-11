@@ -1165,6 +1165,159 @@ body.vl-drawer-open {
 	color: var(--vl-muted);
 }
 
+.vl-bonus__balance--discount .vl-bonus__value {
+	color: var(--vl-accent);
+}
+
+/* Программа лояльности */
+
+.vl-loyalty {
+	margin-bottom: 18px;
+}
+
+.vl-loyalty__level {
+	font-size: 14px;
+	margin: 0 0 8px;
+}
+
+.vl-loyalty__rules {
+	list-style: none;
+	margin: 0 0 16px;
+	padding: 0;
+	font-size: 13px;
+	color: var(--vl-muted);
+	line-height: 1.7;
+}
+
+.vl-loyalty--join .vl-field,
+.vl-loyalty--activate .vl-check {
+	margin-bottom: 16px;
+}
+
+.vl-note--loyalty {
+	border-left: 3px solid var(--vl-accent);
+	padding-left: 12px;
+}
+
+/* Списание баллов в корзине */
+
+.vl-loyalty-cart {
+	--vl-accent: #d40000;
+	--vl-dark: #2f2f2f;
+	--vl-border: #e4e4e4;
+	--vl-border-strong: #bdbdbd;
+	--vl-text: #333;
+	--vl-muted: #8a8a8a;
+	--vl-bg-soft: #f7f7f7;
+	--vl-radius: 0px;
+	--vl-error: #d40000;
+	--vl-success: #2a9d3f;
+
+	box-sizing: border-box;
+	margin: 18px 0;
+	padding: 16px 18px;
+	background: var(--vl-bg-soft);
+	color: var(--vl-text);
+	font-size: 13px;
+	line-height: 1.6;
+}
+
+.vl-loyalty-cart * {
+	box-sizing: border-box;
+}
+
+.vl-loyalty-cart .vl-label {
+	display: block;
+	margin-bottom: 8px;
+	color: var(--vl-muted);
+	font-size: 13px;
+}
+
+.vl-loyalty-cart__controls {
+	display: flex;
+	gap: 10px;
+	flex-wrap: wrap;
+	align-items: stretch;
+}
+
+.vl-loyalty-cart__controls .vl-input {
+	width: 120px;
+	height: 44px;
+	padding: 10px 14px;
+	border: 1px solid var(--vl-border);
+	border-radius: var(--vl-radius);
+	background: #fff;
+	font-size: 14px;
+	color: var(--vl-text);
+}
+
+.vl-loyalty-cart__controls .vl-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-height: 44px;
+	padding: 10px 22px;
+	border: 1px solid transparent;
+	border-radius: var(--vl-radius);
+	background: var(--vl-dark);
+	color: #fff;
+	font-size: 12px;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	cursor: pointer;
+}
+
+.vl-loyalty-cart__controls .vl-btn:hover {
+	background: var(--vl-accent);
+}
+
+.vl-loyalty-cart__note,
+.vl-loyalty-cart__credit {
+	margin: 0;
+}
+
+.vl-loyalty-cart__credit {
+	margin-top: 10px;
+	color: var(--vl-success);
+}
+
+.vl-loyalty-cart .vl-link {
+	background: none;
+	border: 0;
+	padding: 0;
+	margin-left: 6px;
+	font-size: 13px;
+	color: var(--vl-muted);
+	text-decoration: underline;
+	cursor: pointer;
+}
+
+.vl-loyalty-cart .vl-form__messages:empty {
+	display: none;
+}
+
+.vl-loyalty-cart .vl-message {
+	padding: 10px 12px;
+	margin-bottom: 12px;
+	border-left: 3px solid var(--vl-border-strong);
+	background: #fff;
+}
+
+.vl-loyalty-cart .vl-message--error {
+	border-left-color: var(--vl-error);
+	color: #8c1c1c;
+}
+
+.vl-loyalty-cart .vl-message--success {
+	border-left-color: var(--vl-success);
+	color: #1f6b2e;
+}
+
+.vl-loyalty-credit th,
+.vl-loyalty-credit td {
+	color: var(--vl-success, #2a9d3f);
+}
+
 /* Информационные строки */
 
 .vl-info-list {
@@ -1501,4 +1654,12 @@ body.vl-drawer-open {
 	min-width: 16px;
 	border: 1px solid var(--vl-border-strong);
 	background: #fff;
+}
+
+.vl-loyalty-cart__terms {
+	margin: 10px 0 0;
+}
+
+.vl-loyalty-cart__terms .vl-link {
+	margin-left: 0;
 }

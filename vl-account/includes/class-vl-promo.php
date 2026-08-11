@@ -93,11 +93,15 @@ class VL_Account_Promo {
 		$amount = (float) VL_Account_Settings::get( 'promo_discount', 10 );
 		$days   = (int) VL_Account_Settings::get( 'promo_days', 30 );
 
+		// «Только один купон в заказе» ломает списание баллов программы лояльности:
+		// WooCommerce выкинет из корзины технический купон CRM. Интеграция выключает флаг.
+		$individual = (bool) apply_filters( 'vlacc_promo_individual_use', true, $user_id );
+
 		$coupon = new WC_Coupon();
 		$coupon->set_code( $code );
 		$coupon->set_discount_type( 'percent' );
 		$coupon->set_amount( $amount );
-		$coupon->set_individual_use( true );
+		$coupon->set_individual_use( $individual );
 		$coupon->set_usage_limit( 1 );
 		$coupon->set_description( __( 'Промокод за регистрацию', 'vl-account' ) );
 

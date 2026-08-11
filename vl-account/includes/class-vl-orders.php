@@ -43,8 +43,12 @@ class VL_Account_Orders {
 			return;
 		}
 
-		add_action( 'woocommerce_checkout_order_processed', array( $this, 'after_checkout' ), 20, 3 );
-		add_action( 'woocommerce_store_api_checkout_order_processed', array( $this, 'after_checkout_blocks' ), 20 );
+		// Приоритет управляемый: интеграция с CRM опускает его ниже 10, чтобы заказ
+		// уехал в CRM уже привязанным к покупателю, а не гостевым.
+		$priority = (int) apply_filters( 'vlacc_checkout_hook_priority', 20 );
+
+		add_action( 'woocommerce_checkout_order_processed', array( $this, 'after_checkout' ), $priority, 3 );
+		add_action( 'woocommerce_store_api_checkout_order_processed', array( $this, 'after_checkout_blocks' ), $priority );
 
 		// Подсказка на оформлении заказа для незарегистрированных.
 		add_action( 'woocommerce_after_checkout_billing_form', array( $this, 'checkout_notice' ) );

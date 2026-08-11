@@ -2,8 +2,8 @@
 /**
  * Plugin Name: VL Account — вход, регистрация по SMS и личный кабинет
  * Plugin URI:  https://example.com/
- * Description: Вход и регистрация по номеру телефона через SMS.RU (код в SMS или звонком), восстановление пароля, личный кабинет WooCommerce (заказы, избранное, промокод, бонусы, согласия), автосоздание кабинета при заказе, привязка гостевых заказов. Всё выводится шорткодами.
- * Version:     1.0.0
+ * Description: Вход и регистрация по номеру телефона через SMS.RU (код в SMS или звонком), восстановление пароля, личный кабинет WooCommerce (заказы, избранное, промокод, бонусы, согласия), автосоздание кабинета при заказе, привязка гостевых заказов. Полная интеграция с плагином Simla.com (RetailCRM): программа лояльности, списание баллов, скидки, синхронизация покупателя. Всё выводится шорткодами.
+ * Version:     1.1.0
  * Requires PHP: 7.4
  * Requires at least: 5.8
  * Author:      —
@@ -17,7 +17,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'VLACC_VERSION', '1.0.0' );
+define( 'VLACC_VERSION', '1.1.0' );
 define( 'VLACC_FILE', __FILE__ );
 define( 'VLACC_PATH', plugin_dir_path( __FILE__ ) );
 define( 'VLACC_URL', plugin_dir_url( __FILE__ ) );
@@ -47,6 +47,13 @@ require_once VLACC_PATH . 'includes/class-vl-cache.php';
 require_once VLACC_PATH . 'includes/class-vl-gate.php';
 require_once VLACC_PATH . 'includes/class-vl-shortcodes.php';
 require_once VLACC_PATH . 'includes/class-vl-admin.php';
+
+// Интеграция с плагином «Simla.com» (woo-retailcrm).
+require_once VLACC_PATH . 'includes/integrations/class-vl-retailcrm.php';
+require_once VLACC_PATH . 'includes/integrations/class-vl-retailcrm-customer.php';
+require_once VLACC_PATH . 'includes/integrations/class-vl-retailcrm-loyalty.php';
+require_once VLACC_PATH . 'includes/integrations/class-vl-retailcrm-promo.php';
+require_once VLACC_PATH . 'includes/integrations/class-vl-retailcrm-cart.php';
 
 /**
  * Главный класс плагина.
@@ -95,6 +102,17 @@ final class VL_Account_Plugin {
 	public function init() {
 		VL_Account_Settings::instance();
 		VL_Account_Errors::instance();
+
+		// Интеграция с RetailCRM / Simla подключается, только если тот плагин активен.
+		// Поднимаем её до остальных подсистем: она меняет приоритеты их хуков.
+		if ( VL_Account_RetailCRM::plugin_active() ) {
+			VL_Account_RetailCRM::instance();
+			VL_Account_RetailCRM_Customer::instance();
+			VL_Account_RetailCRM_Loyalty::instance();
+			VL_Account_RetailCRM_Promo::instance();
+			VL_Account_RetailCRM_Cart::instance();
+		}
+
 		VL_Account_Auth::instance();
 		VL_Account_Ajax::instance();
 		VL_Account_Router::instance();
@@ -174,6 +192,7 @@ final class VL_Account_Plugin {
 					'copied'       => __( 'Скопировано', 'vl-account' ),
 					'confirm_exit' => __( 'Выйти из личного кабинета?', 'vl-account' ),
 					'gate_hint'    => __( 'После входа мы сразу продолжим — товар добавится в корзину.', 'vl-account' ),
+					'loyalty_confirm' => __( 'Отметьте согласие с участием в программе лояльности.', 'vl-account' ),
 				),
 			)
 		);

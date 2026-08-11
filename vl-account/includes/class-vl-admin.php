@@ -79,7 +79,7 @@ class VL_Account_Admin {
 	protected function tab() {
 		$tab = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : 'sms'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
 
-		return in_array( $tab, array( 'sms', 'forms', 'account', 'orders', 'design', 'tools' ), true ) ? $tab : 'sms';
+		return in_array( $tab, array( 'sms', 'forms', 'account', 'orders', 'crm', 'design', 'tools' ), true ) ? $tab : 'sms';
 	}
 
 	/**
@@ -98,6 +98,7 @@ class VL_Account_Admin {
 			'forms'   => __( 'Вход и регистрация', 'vl-account' ),
 			'account' => __( 'Личный кабинет', 'vl-account' ),
 			'orders'  => __( 'Заказы и письма', 'vl-account' ),
+			'crm'     => __( 'Simla / RetailCRM', 'vl-account' ),
 			'design'  => __( 'Оформление', 'vl-account' ),
 			'tools'   => __( 'Диагностика', 'vl-account' ),
 		);
@@ -490,6 +491,245 @@ class VL_Account_Admin {
 	}
 
 	/**
+	 * Вкладка интеграции с Simla.com / RetailCRM.
+	 *
+	 * @param array $s Настройки.
+	 */
+	protected function render_crm( $s ) {
+		$active  = VL_Account_RetailCRM::plugin_active();
+		$api     = $active && VL_Account_RetailCRM::api_ready();
+		$loyalty = $api && VL_Account_RetailCRM::loyalty_enabled();
+		?>
+		<h2><?php esc_html_e( 'Состояние связки', 'vl-account' ); ?></h2>
+
+		<table class="widefat striped" style="max-width:900px;margin-bottom:20px">
+			<tbody>
+				<?php foreach ( $this->crm_checks() as $check ) : ?>
+					<tr>
+						<td style="width:32px">
+							<span style="color:<?php echo 'ok' === $check['status'] ? '#2a9d3f' : ( 'warn' === $check['status'] ? '#d98f00' : '#d40000' ); ?>;font-size:18px">●</span>
+						</td>
+						<td style="width:280px"><strong><?php echo esc_html( $check['title'] ); ?></strong></td>
+						<td><?php echo wp_kses_post( $check['text'] ); ?></td>
+					</tr>
+				<?php endforeach; ?>
+			</tbody>
+		</table>
+
+		<?php if ( ! $active ) : ?>
+			<p class="description">
+				<?php esc_html_e( 'Плагин Simla.com не активен. Настройки ниже сохранятся, но заработают только после его подключения.', 'vl-account' ); ?>
+			</p>
+		<?php endif; ?>
+
+		<h2><?php esc_html_e( 'Обмен данными', 'vl-account' ); ?></h2>
+
+		<table class="form-table" role="presentation">
+			<?php
+			$this->checkbox(
+				'crm_enabled',
+				$s,
+				__( 'Включить интеграцию', 'vl-account' ),
+				__( 'Общий выключатель: кабинет перестаёт обращаться к CRM и работает на локальных данных.', 'vl-account' )
+			);
+			$this->checkbox(
+				'crm_sync_customer',
+				$s,
+				__( 'Досылать данные покупателя', 'vl-account' ),
+				__( 'Плагин Simla выгружает покупателя в момент регистрации, когда телефон ещё не записан. Кабинет досылает телефон, имя и согласия сразу после.', 'vl-account' )
+			);
+			$this->checkbox(
+				'crm_sync_consents',
+				$s,
+				__( 'Согласие на рассылку → подписка в CRM', 'vl-account' ),
+				__( 'Галочка «хочу получать письма» в кабинете управляет полем «подписан» у покупателя в CRM.', 'vl-account' )
+			);
+			$this->checkbox(
+				'crm_skip_tech_email',
+				$s,
+				__( 'Не отправлять технические адреса', 'vl-account' ),
+				__( 'При регистрации по SMS без почты кабинет заводит адрес вида 79001234567@phone.сайт. В CRM он не нужен — покупатель уедет с телефоном.', 'vl-account' )
+			);
+			$this->checkbox(
+				'crm_order_priority',
+				$s,
+				__( 'Привязывать заказ до выгрузки', 'vl-account' ),
+				__( 'Кабинет создаёт аккаунт и привязывает заказ раньше, чем Simla отправит заказ в CRM. Иначе заказ уезжает гостевым.', 'vl-account' )
+			);
+			$this->text(
+				'crm_wishlist_field',
+				$s,
+				__( 'Поле CRM для избранного', 'vl-account' ),
+				__( 'Символьный код пользовательского поля покупателя в CRM. Пусто — избранное не выгружается.', 'vl-account' )
+			);
+			$this->text(
+				'crm_cache_ttl',
+				$s,
+				__( 'Кэш данных лояльности, сек', 'vl-account' ),
+				__( 'Баланс и история берутся из CRM по API. 300 секунд — разумный компромисс между свежестью и скоростью.', 'vl-account' ),
+				'number'
+			);
+			?>
+		</table>
+
+		<h2><?php esc_html_e( 'Программа лояльности в кабинете', 'vl-account' ); ?></h2>
+
+		<table class="form-table" role="presentation">
+			<?php
+			$this->select(
+				'crm_bonus_source',
+				$s,
+				__( 'Источник баланса баллов', 'vl-account' ),
+				array(
+					'auto'  => __( 'Автоматически: CRM, если участие активно', 'vl-account' ),
+					'crm'   => __( 'Только CRM', 'vl-account' ),
+					'local' => __( 'Только локальный баланс плагина', 'vl-account' ),
+				),
+				__( 'Локальный баланс задаётся вручную в профиле пользователя и подходит, пока программа лояльности в CRM не настроена.', 'vl-account' )
+			);
+			$this->checkbox(
+				'crm_loyalty_ui',
+				$s,
+				__( 'Вступление и активация в кабинете', 'vl-account' ),
+				__( 'В разделе «Бонусы» покупатель может вступить в программу и активировать участие (с кодом из SMS, если CRM его запрашивает).', 'vl-account' )
+			);
+			$this->checkbox(
+				'crm_hide_wc_loyalty',
+				$s,
+				__( 'Убрать раздел Simla из меню', 'vl-account' ),
+				__( 'Стандартный пункт «Loyalty program» дублирует наш раздел «Бонусы». Его адрес перенаправляется на «Бонусы».', 'vl-account' )
+			);
+			?>
+		</table>
+
+		<h2><?php esc_html_e( 'Корзина и промокоды', 'vl-account' ); ?></h2>
+
+		<table class="form-table" role="presentation">
+			<?php
+			$this->select(
+				'crm_cart_widget',
+				$s,
+				__( 'Списание баллов в корзине', 'vl-account' ),
+				array(
+					'replace' => __( 'Вместо стандартного блока Simla', 'vl-account' ),
+					'add'     => __( 'Дополнительно к стандартному блоку', 'vl-account' ),
+					'off'     => __( 'Не выводить, оставить блок Simla', 'vl-account' ),
+				),
+				__( 'Блок можно поставить и вручную шорткодом <code>[vl_loyalty_cart]</code> — например, в блочной корзине.', 'vl-account' )
+			);
+			$this->checkbox(
+				'crm_credit_top',
+				$s,
+				__( 'Начисление баллов рядом с итогом', 'vl-account' ),
+				__( 'Строка «Начислим баллов» переносится из блока оплаты к сумме заказа — её видно сразу.', 'vl-account' )
+			);
+			$this->checkbox(
+				'crm_promo_combine',
+				$s,
+				__( 'Промокод совместим с баллами', 'vl-account' ),
+				__( 'С промокода за регистрацию снимается флаг «только один купон в заказе»: иначе WooCommerce выкидывает из корзины купон списания баллов.', 'vl-account' )
+			);
+			$this->checkbox(
+				'crm_promo_hide_loyalty',
+				$s,
+				__( 'Прятать служебные купоны', 'vl-account' ),
+				__( 'Купоны вида loyalty12345 создаёт Simla для списания баллов. В разделе «Промокоды» их быть не должно.', 'vl-account' )
+			);
+			$this->checkbox(
+				'crm_fix_coupon_email',
+				$s,
+				__( 'Чинить купоны с техническим адресом', 'vl-account' ),
+				__( 'Купон списания привязывается к почте покупателя. Для входа по SMS почта техническая, и купон становится неприменимым — такое ограничение снимается.', 'vl-account' )
+			);
+			?>
+		</table>
+		<?php
+	}
+
+	/**
+	 * Проверки связки с CRM.
+	 *
+	 * @return array
+	 */
+	protected function crm_checks() {
+		$checks = array();
+
+		$active = VL_Account_RetailCRM::plugin_active();
+
+		$checks[] = array(
+			'title'  => __( 'Плагин Simla.com', 'vl-account' ),
+			'status' => $active ? 'ok' : 'warn',
+			'text'   => $active
+				? __( 'Активен.', 'vl-account' )
+				: __( 'Не найден. Раздел «Бонусы» работает на локальном балансе.', 'vl-account' ),
+		);
+
+		if ( ! $active ) {
+			return $checks;
+		}
+
+		$ping = VL_Account_RetailCRM::ping();
+
+		$checks[] = array(
+			'title'  => __( 'Связь с CRM', 'vl-account' ),
+			'status' => $ping['ok'] ? 'ok' : 'error',
+			'text'   => esc_html( $ping['message'] ),
+		);
+
+		$loyalty = VL_Account_RetailCRM::loyalty_enabled();
+
+		$checks[] = array(
+			'title'  => __( 'Программа лояльности', 'vl-account' ),
+			'status' => $loyalty ? 'ok' : 'warn',
+			'text'   => $loyalty
+				? __( 'Включена в настройках Simla — баланс и история берутся из CRM.', 'vl-account' )
+				: __( 'Выключена в настройках Simla (WooCommerce → Настройки → Интеграция). Пока она выключена, раздел «Бонусы» показывает локальный баланс.', 'vl-account' ),
+		);
+
+		if ( $loyalty ) {
+			$coupons = 'yes' === get_option( 'woocommerce_enable_coupons' );
+
+			$checks[] = array(
+				'title'  => __( 'Купоны WooCommerce', 'vl-account' ),
+				'status' => $coupons ? 'ok' : 'error',
+				'text'   => $coupons
+					? __( 'Включены — списание баллов и промокоды работают.', 'vl-account' )
+					: __( 'Выключены. Без них Simla не сможет списать баллы, а плагин — выдать промокод.', 'vl-account' ),
+			);
+		}
+
+		$coupon_field = VL_Account_RetailCRM::crm_setting( 'woo_coupon_apply_field', 'not-upload' );
+
+		$checks[] = array(
+			'title'  => __( 'Промокоды в заказе', 'vl-account' ),
+			'status' => ( $coupon_field && 'not-upload' !== $coupon_field ) ? 'ok' : 'warn',
+			'text'   => ( $coupon_field && 'not-upload' !== $coupon_field )
+				? sprintf(
+					/* translators: %s — код поля в CRM. */
+					esc_html__( 'Коды применённых купонов уезжают в поле «%s».', 'vl-account' ),
+					esc_html( $coupon_field )
+				)
+				: esc_html__( 'В настройках Simla не выбрано поле для промокодов — в CRM не будет видно, каким кодом воспользовался покупатель.', 'vl-account' ),
+		);
+
+		$field = VL_Account_RetailCRM_Customer::wishlist_field();
+
+		$checks[] = array(
+			'title'  => __( 'Избранное в CRM', 'vl-account' ),
+			'status' => $field ? 'ok' : 'warn',
+			'text'   => $field
+				? sprintf(
+					/* translators: %s — код поля в CRM. */
+					esc_html__( 'Выгружается в поле «%s».', 'vl-account' ),
+					esc_html( $field )
+				)
+				: esc_html__( 'Поле не указано — избранное остаётся только в кабинете.', 'vl-account' ),
+		);
+
+		return $checks;
+	}
+
+	/**
 	 * Вкладка оформления.
 	 *
 	 * @param array $s Настройки.
@@ -877,6 +1117,11 @@ class VL_Account_Admin {
 				: __( 'Не выбрана: ссылки «войти» ведут на страницу кабинета. Создайте страницу с шорткодом [vl_auth] и укажите её в настройках.', 'vl-account' ),
 		);
 
+		// Связка с RetailCRM / Simla.
+		if ( VL_Account_RetailCRM::plugin_active() ) {
+			$checks = array_merge( $checks, $this->crm_checks() );
+		}
+
 		// ЧПУ.
 		$checks[] = array(
 			'title'  => __( 'Постоянные ссылки', 'vl-account' ),
@@ -909,6 +1154,7 @@ class VL_Account_Admin {
 			'forms'   => array( 'passwordless', 'auto_register', 'auth_marketing_box', 'show_telegram', 'gate_cart', 'consent_privacy', 'consent_marketing' ),
 			'account' => array( 'wishlist_on_product' ),
 			'orders'  => array( 'auto_create_account', 'attach_guest_orders', 'match_by_phone', 'email_on_register', 'email_on_autocreate', 'email_confirm' ),
+			'crm'     => array( 'crm_enabled', 'crm_sync_customer', 'crm_sync_consents', 'crm_skip_tech_email', 'crm_order_priority', 'crm_loyalty_ui', 'crm_hide_wc_loyalty', 'crm_credit_top', 'crm_promo_combine', 'crm_promo_hide_loyalty', 'crm_fix_coupon_email' ),
 			'design'  => array(),
 		);
 

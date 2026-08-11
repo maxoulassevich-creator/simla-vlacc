@@ -529,6 +529,111 @@
 	}
 
 	/* ------------------------------------------------------------------
+	 * Программа лояльности (RetailCRM)
+	 * ------------------------------------------------------------------ */
+
+	/**
+	 * Общий обработчик: показать сообщение и, если нужно, перезагрузить страницу.
+	 * Данные бонусов приходят с сервера, поэтому после действия страница обновляется.
+	 */
+	function loyaltyResult( form, button, res, silent ) {
+		loading( button, false );
+
+		if ( res.success && res.data && res.data.reload ) {
+			if ( res.data.message ) {
+				message( form, res.data.message, 'success' );
+			}
+
+			window.location.reload();
+			return;
+		}
+
+		if ( ! res.success || ! silent ) {
+			message( form, ( res.data && res.data.message ) || cfg.i18n.network, res.success ? 'success' : 'error' );
+		}
+	}
+
+	function loyaltyJoin( form, button ) {
+		message( form, '' );
+		loading( button, true );
+
+		post( 'loyalty_register', {
+			phone: value( form, 'phone' ),
+			terms: checked( form, 'terms' ),
+			privacy: checked( form, 'privacy' )
+		} ).then( function ( res ) {
+			loyaltyResult( form, button, res );
+		} );
+	}
+
+	function loyaltyActivate( form, button ) {
+		if ( qs( form, '[name="loyalty_confirm"]' ) && ! checked( form, 'loyalty_confirm' ) ) {
+			message( form, cfg.i18n.loyalty_confirm, 'error' );
+			return;
+		}
+
+		message( form, '' );
+		loading( button, true );
+
+		post( 'loyalty_activate', {} ).then( function ( res ) {
+			// CRM может попросить подтвердить активацию кодом из SMS.
+			if ( res.success && res.data && res.data.sms ) {
+				loading( button, false );
+
+				var field = qs( form, '[name="check_id"]' );
+
+				if ( field ) {
+					field.value = res.data.check_id;
+				}
+
+				message( form, res.data.message || '', 'success' );
+				step( form, 'sms' );
+				return;
+			}
+
+			loyaltyResult( form, button, res );
+		} );
+	}
+
+	function loyaltyConfirm( form, button ) {
+		message( form, '' );
+		loading( button, true );
+
+		post( 'loyalty_confirm', {
+			code: value( form, 'code' ),
+			check_id: value( form, 'check_id' )
+		} ).then( function ( res ) {
+			loyaltyResult( form, button, res );
+		} );
+	}
+
+	function loyaltyRefresh( form, button ) {
+		loading( button, true );
+
+		post( 'loyalty_refresh', {} ).then( function ( res ) {
+			loyaltyResult( form, button, res, true );
+		} );
+	}
+
+	function loyaltyCharge( form, button ) {
+		message( form, '' );
+		loading( button, true );
+
+		post( 'loyalty_charge', { amount: value( form, 'amount' ) } ).then( function ( res ) {
+			loyaltyResult( form, button, res );
+		} );
+	}
+
+	function loyaltyChargeCancel( form, button ) {
+		message( form, '' );
+		loading( button, true );
+
+		post( 'loyalty_charge_cancel', {} ).then( function ( res ) {
+			loyaltyResult( form, button, res );
+		} );
+	}
+
+	/* ------------------------------------------------------------------
 	 * Выдвижная панель входа (справа)
 	 * ------------------------------------------------------------------ */
 
@@ -980,6 +1085,24 @@
 		},
 		'show-login': function ( form ) {
 			switchPane( form, 'login' );
+		},
+		'loyalty-join': function ( form, button ) {
+			loyaltyJoin( form, button );
+		},
+		'loyalty-activate': function ( form, button ) {
+			loyaltyActivate( form, button );
+		},
+		'loyalty-confirm': function ( form, button ) {
+			loyaltyConfirm( form, button );
+		},
+		'loyalty-refresh': function ( form, button ) {
+			loyaltyRefresh( form, button );
+		},
+		'loyalty-charge': function ( form, button ) {
+			loyaltyCharge( form, button );
+		},
+		'loyalty-charge-cancel': function ( form, button ) {
+			loyaltyChargeCancel( form, button );
 		}
 	};
 

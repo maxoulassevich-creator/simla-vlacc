@@ -2,6 +2,11 @@
 /**
  * Кабинет: бонусы программы лояльности.
  *
+ * Раздел работает в двух режимах:
+ *  — программа лояльности RetailCRM подключена: баланс, уровень, сгорание и
+ *    история берутся из CRM, здесь же можно вступить в программу и активировать её;
+ *  — интеграция выключена: показываем локальный баланс из метаполя.
+ *
  * @package VL_Account
  *
  * @var int $user_id
@@ -9,15 +14,203 @@
 
 defined( 'ABSPATH' ) || exit;
 
-$vl_balance = VL_Account_Bonus::get_balance( $user_id );
-$vl_history = VL_Account_Bonus::get_history( $user_id );
-$vl_page    = (int) VL_Account_Settings::get( 'loyalty_page', 0 );
+$vl_state = class_exists( 'VL_Account_RetailCRM_Loyalty' )
+	? VL_Account_RetailCRM_Loyalty::state( $user_id )
+	: array( 'crm' => false, 'status' => 'off' );
+
+$vl_crm      = ! empty( $vl_state['crm'] );
+$vl_status   = isset( $vl_state['status'] ) ? $vl_state['status'] : 'off';
+$vl_account  = isset( $vl_state['account'] ) ? $vl_state['account'] : array();
+$vl_balance  = VL_Account_Bonus::get_balance( $user_id );
+$vl_history  = VL_Account_Bonus::get_history( $user_id );
+$vl_page     = (int) VL_Account_Settings::get( 'loyalty_page', 0 );
+$vl_discount = $vl_crm && class_exists( 'VL_Account_RetailCRM_Loyalty' )
+	? VL_Account_RetailCRM_Loyalty::is_discount_level( $vl_account )
+	: false;
 ?>
-<div class="vl-bonus">
-	<div class="vl-bonus__balance">
-		<span class="vl-bonus__value"><?php echo esc_html( number_format_i18n( $vl_balance ) ); ?></span>
-		<span class="vl-bonus__label"><?php esc_html_e( 'баллов на счету', 'vl-account' ); ?></span>
-	</div>
+<div class="vl-bonus" data-vl-form="loyalty">
+
+	<div class="vl-form__messages" data-vl-messages></div>
+
+	<?php if ( $vl_crm && 'active' === $vl_status && $vl_discount ) : ?>
+
+		<div class="vl-bonus__balance vl-bonus__balance--discount">
+			<span class="vl-bonus__value"><?php echo esc_html( number_format_i18n( $vl_account['level']['size'], 0 ) ); ?>%</span>
+			<span class="vl-bonus__label"><?php esc_html_e( 'ваша скидка по программе лояльности', 'vl-account' ); ?></span>
+		</div>
+
+	<?php elseif ( $vl_crm && 'active' === $vl_status ) : ?>
+
+		<div class="vl-bonus__balance">
+			<span class="vl-bonus__value"><?php echo esc_html( number_format_i18n( $vl_balance ) ); ?></span>
+			<span class="vl-bonus__label"><?php esc_html_e( 'баллов на счету', 'vl-account' ); ?></span>
+		</div>
+
+	<?php elseif ( ! $vl_crm ) : ?>
+
+		<div class="vl-bonus__balance">
+			<span class="vl-bonus__value"><?php echo esc_html( number_format_i18n( $vl_balance ) ); ?></span>
+			<span class="vl-bonus__label"><?php esc_html_e( 'баллов на счету', 'vl-account' ); ?></span>
+		</div>
+
+	<?php endif; ?>
+
+	<?php if ( $vl_crm && 'active' === $vl_status ) : ?>
+
+		<div class="vl-loyalty">
+			<?php if ( ! empty( $vl_account['level']['name'] ) ) : ?>
+				<p class="vl-loyalty__level">
+					<?php
+					printf(
+						/* translators: %s — название уровня. */
+						esc_html__( 'Уровень: %s', 'vl-account' ),
+						'<strong>' . esc_html( $vl_account['level']['name'] ) . '</strong>'
+					);
+					?>
+				</p>
+			<?php endif; ?>
+
+			<?php $vl_rules = VL_Account_RetailCRM_Loyalty::level_rules( $vl_account['level'], $vl_account['currency'] ); ?>
+
+			<?php if ( $vl_rules ) : ?>
+				<ul class="vl-loyalty__rules">
+					<?php foreach ( $vl_rules as $vl_rule ) : ?>
+						<li><?php echo esc_html( $vl_rule ); ?></li>
+					<?php endforeach; ?>
+				</ul>
+			<?php endif; ?>
+
+			<div class="vl-info-list">
+				<?php if ( ! $vl_discount && ! empty( $vl_account['activation'] ) ) : ?>
+					<div class="vl-info-list__row">
+						<span class="vl-info-list__label"><?php esc_html_e( 'Ждут активации', 'vl-account' ); ?></span>
+						<span class="vl-info-list__value">
+							<?php
+							printf(
+								/* translators: 1: баллы, 2: дата. */
+								esc_html__( '%1$s — станут доступны %2$s', 'vl-account' ),
+								esc_html( number_format_i18n( $vl_account['activation']['amount'] ) ),
+								esc_html( $vl_account['activation']['date'] )
+							);
+							?>
+						</span>
+					</div>
+				<?php endif; ?>
+
+				<?php if ( ! $vl_discount && ! empty( $vl_account['burn'] ) ) : ?>
+					<div class="vl-info-list__row">
+						<span class="vl-info-list__label"><?php esc_html_e( 'Сгорят', 'vl-account' ); ?></span>
+						<span class="vl-info-list__value vl-negative">
+							<?php
+							printf(
+								/* translators: 1: баллы, 2: дата. */
+								esc_html__( '%1$s — до %2$s', 'vl-account' ),
+								esc_html( number_format_i18n( $vl_account['burn']['amount'] ) ),
+								esc_html( $vl_account['burn']['date'] )
+							);
+							?>
+						</span>
+					</div>
+				<?php endif; ?>
+
+				<?php if ( $vl_account['orders_sum'] > 0 ) : ?>
+					<div class="vl-info-list__row">
+						<span class="vl-info-list__label"><?php esc_html_e( 'Сумма покупок', 'vl-account' ); ?></span>
+						<span class="vl-info-list__value">
+							<?php echo esc_html( number_format_i18n( $vl_account['orders_sum'] ) . ' ' . $vl_account['currency'] ); ?>
+						</span>
+					</div>
+				<?php endif; ?>
+
+				<?php if ( $vl_account['next_level'] > $vl_account['orders_sum'] ) : ?>
+					<div class="vl-info-list__row">
+						<span class="vl-info-list__label"><?php esc_html_e( 'До следующего уровня', 'vl-account' ); ?></span>
+						<span class="vl-info-list__value">
+							<?php echo esc_html( number_format_i18n( $vl_account['next_level'] - $vl_account['orders_sum'] ) . ' ' . $vl_account['currency'] ); ?>
+						</span>
+					</div>
+				<?php endif; ?>
+			</div>
+		</div>
+
+	<?php elseif ( $vl_crm && 'none' === $vl_status ) : ?>
+
+		<div class="vl-loyalty vl-loyalty--join">
+			<h3 class="vl-subtitle"><?php esc_html_e( 'Программа лояльности', 'vl-account' ); ?></h3>
+			<p class="vl-note"><?php esc_html_e( 'Вступите в программу — за покупки будем начислять баллы, их можно списать в корзине.', 'vl-account' ); ?></p>
+
+			<div class="vl-field">
+				<label class="vl-label" for="vl-loyalty-phone"><?php esc_html_e( 'Телефон', 'vl-account' ); ?></label>
+				<input type="tel" id="vl-loyalty-phone" name="phone" class="vl-input" data-vl-phone
+					value="<?php echo esc_attr( $vl_state['phone_masked'] ); ?>" />
+			</div>
+
+			<div class="vl-consents">
+				<?php if ( ! empty( $vl_state['terms'] ) ) : ?>
+					<label class="vl-check">
+						<input type="checkbox" name="terms" value="1" />
+						<span class="vl-check__box"></span>
+						<span class="vl-check__text">
+							<?php esc_html_e( 'Согласен с условиями программы лояльности', 'vl-account' ); ?>
+							<?php if ( $vl_page && get_post_status( $vl_page ) === 'publish' ) : ?>
+								— <a class="vl-link" href="<?php echo esc_url( get_permalink( $vl_page ) ); ?>" target="_blank" rel="noopener"><?php esc_html_e( 'прочитать', 'vl-account' ); ?></a>
+							<?php endif; ?>
+						</span>
+					</label>
+				<?php endif; ?>
+
+				<?php if ( ! empty( $vl_state['privacy'] ) ) : ?>
+					<label class="vl-check">
+						<input type="checkbox" name="privacy" value="1" />
+						<span class="vl-check__box"></span>
+						<span class="vl-check__text"><?php esc_html_e( 'Согласен на обработку персональных данных', 'vl-account' ); ?></span>
+					</label>
+				<?php endif; ?>
+			</div>
+
+			<button type="button" class="vl-btn vl-btn--primary" data-vl-action="loyalty-join">
+				<?php esc_html_e( 'вступить в программу', 'vl-account' ); ?>
+			</button>
+		</div>
+
+	<?php elseif ( $vl_crm && 'inactive' === $vl_status ) : ?>
+
+		<div class="vl-loyalty vl-loyalty--activate">
+			<h3 class="vl-subtitle"><?php esc_html_e( 'Осталось активировать участие', 'vl-account' ); ?></h3>
+			<p class="vl-note"><?php esc_html_e( 'Участие оформлено, но ещё не активно. Подтвердите его — и баллы начнут начисляться.', 'vl-account' ); ?></p>
+
+			<div class="vl-step is-active" data-vl-step="activate">
+				<label class="vl-check">
+					<input type="checkbox" name="loyalty_confirm" value="1" />
+					<span class="vl-check__box"></span>
+					<span class="vl-check__text"><?php esc_html_e( 'Подтверждаю участие в программе лояльности', 'vl-account' ); ?></span>
+				</label>
+
+				<button type="button" class="vl-btn vl-btn--primary" data-vl-action="loyalty-activate">
+					<?php esc_html_e( 'активировать', 'vl-account' ); ?>
+				</button>
+			</div>
+
+			<div class="vl-step" data-vl-step="sms">
+				<div class="vl-field">
+					<label class="vl-label" for="vl-loyalty-code"><?php esc_html_e( 'Код из SMS', 'vl-account' ); ?></label>
+					<input type="text" id="vl-loyalty-code" name="code" class="vl-input vl-input--code" inputmode="numeric" autocomplete="one-time-code" />
+					<input type="hidden" name="check_id" value="" />
+				</div>
+
+				<button type="button" class="vl-btn vl-btn--primary" data-vl-action="loyalty-confirm">
+					<?php esc_html_e( 'подтвердить', 'vl-account' ); ?>
+				</button>
+			</div>
+		</div>
+
+	<?php elseif ( $vl_crm && 'error' === $vl_status ) : ?>
+
+		<p class="vl-message vl-message--error">
+			<?php esc_html_e( 'Не удалось получить данные программы лояльности. Показываем сохранённые значения — попробуйте обновить страницу позже.', 'vl-account' ); ?>
+		</p>
+
+	<?php endif; ?>
 
 	<?php if ( $vl_page && get_post_status( $vl_page ) === 'publish' ) : ?>
 		<p class="vl-links">
@@ -25,36 +218,17 @@ $vl_page    = (int) VL_Account_Settings::get( 'loyalty_page', 0 );
 		</p>
 	<?php endif; ?>
 
-	<?php if ( $vl_history ) : ?>
+	<?php if ( ! $vl_crm || in_array( $vl_status, array( 'active', 'error' ), true ) ) : ?>
 		<h3 class="vl-subtitle"><?php esc_html_e( 'История', 'vl-account' ); ?></h3>
 
-		<div class="vl-table-wrap">
-			<table class="vl-table">
-				<thead>
-					<tr>
-						<th><?php esc_html_e( 'Дата', 'vl-account' ); ?></th>
-						<th><?php esc_html_e( 'Операция', 'vl-account' ); ?></th>
-						<th><?php esc_html_e( 'Баллы', 'vl-account' ); ?></th>
-					</tr>
-				</thead>
-				<tbody>
-					<?php foreach ( $vl_history as $vl_row ) : ?>
-						<tr>
-							<td data-label="<?php esc_attr_e( 'Дата', 'vl-account' ); ?>">
-								<?php echo esc_html( isset( $vl_row['date'] ) ? date_i18n( 'd.m.Y', strtotime( $vl_row['date'] ) ) : '' ); ?>
-							</td>
-							<td data-label="<?php esc_attr_e( 'Операция', 'vl-account' ); ?>">
-								<?php echo esc_html( isset( $vl_row['description'] ) ? $vl_row['description'] : '' ); ?>
-							</td>
-							<td data-label="<?php esc_attr_e( 'Баллы', 'vl-account' ); ?>" class="<?php echo ( isset( $vl_row['amount'] ) && $vl_row['amount'] < 0 ) ? 'vl-negative' : 'vl-positive'; ?>">
-								<?php echo esc_html( ( isset( $vl_row['amount'] ) && $vl_row['amount'] > 0 ? '+' : '' ) . number_format_i18n( isset( $vl_row['amount'] ) ? $vl_row['amount'] : 0 ) ); ?>
-							</td>
-						</tr>
-					<?php endforeach; ?>
-				</tbody>
-			</table>
-		</div>
-	<?php else : ?>
-		<p class="vl-note"><?php esc_html_e( 'История операций появится после первых начислений.', 'vl-account' ); ?></p>
+		<?php vlacc_template( 'parts/bonus-history.php', array( 'history' => $vl_history ) ); ?>
+	<?php endif; ?>
+
+	<?php if ( $vl_crm && in_array( $vl_status, array( 'active', 'error' ), true ) ) : ?>
+		<p class="vl-links">
+			<button type="button" class="vl-link vl-link--muted" data-vl-action="loyalty-refresh">
+				<?php esc_html_e( 'Обновить данные из CRM', 'vl-account' ); ?>
+			</button>
+		</p>
 	<?php endif; ?>
 </div>

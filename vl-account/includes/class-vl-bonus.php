@@ -124,6 +124,11 @@ class VL_Account_Bonus {
 				<td>
 					<input type="number" step="0.01" name="vlacc_bonus_balance" id="vlacc_bonus_balance"
 						value="<?php echo esc_attr( get_user_meta( $user->ID, self::META_BALANCE, true ) ); ?>" class="regular-text" />
+					<?php if ( class_exists( 'VL_Account_RetailCRM_Loyalty' ) && 'crm' === VL_Account_RetailCRM_Loyalty::source( $user->ID ) ) : ?>
+						<p class="description">
+							<?php esc_html_e( 'Сейчас в кабинете показывается баланс из программы лояльности RetailCRM — это поле не влияет на него. Начисляйте и списывайте баллы в CRM.', 'vl-account' ); ?>
+						</p>
+					<?php endif; ?>
 				</td>
 			</tr>
 			<tr>
