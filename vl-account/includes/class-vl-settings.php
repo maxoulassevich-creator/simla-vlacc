@@ -76,7 +76,8 @@ class VL_Account_Settings {
 			'default_country'     => '7',
 
 			// Вход перед покупкой.
-			'gate_cart'           => 0,       // Требовать вход перед добавлением в корзину.
+			'gate_cart'           => 0,       // Требовать вход перед покупкой.
+			'gate_mode'           => 'checkout', // checkout — вход на оформлении, cart — до корзины.
 			'gate_title'          => '',
 			'gate_message'        => '',
 			'gate_selectors'      => '',      // Доп. CSS-селекторы кнопок покупки.

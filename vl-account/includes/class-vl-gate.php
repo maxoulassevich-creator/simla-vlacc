@@ -2,12 +2,16 @@
 /**
  * Обязательная авторизация перед покупкой.
  *
- * Гость не может положить товар в корзину и не может купить в один клик:
- * вместо этого справа выезжает панель с формой входа/регистрации по SMS.
- * После успешного входа прерванное действие повторяется автоматически.
+ * Два режима:
+ *  — «оформление» (по умолчанию): гость спокойно наполняет корзину, а вход
+ *    требуется на шаге «Оформить заказ». Так покупатель видит цену, доставку
+ *    и корзину до того, как у него спросят телефон, — конверсия выше;
+ *  — «корзина»: вход требуется ещё до добавления товара.
  *
- * Блокировка стоит и на клиенте (перехват клика), и на сервере
- * (валидация WooCommerce и перехват ссылки ?add-to-cart=...), чтобы её
+ * В обоих случаях справа выезжает панель с формой входа по SMS, а после
+ * успешного входа прерванное действие повторяется автоматически.
+ *
+ * Блокировка стоит и на клиенте (перехват клика), и на сервере, чтобы её
  * нельзя было обойти отключением JavaScript или прямой ссылкой.
  *
  * @package VL_Account
@@ -57,11 +61,43 @@ class VL_Account_Gate {
 			return;
 		}
 
-		add_filter( 'woocommerce_add_to_cart_validation', array( $this, 'validate_add_to_cart' ), 10, 3 );
-		add_action( 'woocommerce_store_api_validate_add_to_cart', array( $this, 'validate_store_api' ), 10, 2 );
-		// WooCommerce обрабатывает ?add-to-cart= на wp_loaded с приоритетом 20 —
-		// перехватываем раньше, чтобы товар вообще не попал в корзину.
-		add_action( 'wp_loaded', array( $this, 'intercept_add_to_cart_url' ), 15 );
+		if ( self::blocks_cart() ) {
+			add_filter( 'woocommerce_add_to_cart_validation', array( $this, 'validate_add_to_cart' ), 10, 3 );
+			add_action( 'woocommerce_store_api_validate_add_to_cart', array( $this, 'validate_store_api' ), 10, 2 );
+			// WooCommerce обрабатывает ?add-to-cart= на wp_loaded с приоритетом 20 —
+			// перехватываем раньше, чтобы товар вообще не попал в корзину.
+			add_action( 'wp_loaded', array( $this, 'intercept_add_to_cart_url' ), 15 );
+
+			return;
+		}
+
+		// Режим «оформление»: корзина открыта, вход требуется на чекауте.
+		add_action( 'template_redirect', array( $this, 'guard_checkout' ), 5 );
+
+		// Серверный стоп на случай выключенного JS и блочного оформления:
+		// WooCommerce сам не примет заказ от гостя.
+		add_filter( 'woocommerce_checkout_registration_required', array( $this, 'force_registration_required' ), 99 );
+		add_filter( 'woocommerce_checkout_registration_enabled', array( $this, 'force_registration_disabled' ), 99 );
+	}
+
+	/**
+	 * Для гостя оформление заказа без аккаунта запрещено.
+	 *
+	 * @param bool $required Текущее значение.
+	 * @return bool
+	 */
+	public function force_registration_required( $required ) {
+		return self::should_block() ? true : $required;
+	}
+
+	/**
+	 * Регистрация прямо на оформлении не нужна: аккаунт заводится по коду из SMS.
+	 *
+	 * @param bool $enabled Текущее значение.
+	 * @return bool
+	 */
+	public function force_registration_disabled( $enabled ) {
+		return self::should_block() ? false : $enabled;
 	}
 
 	/**
@@ -75,6 +111,36 @@ class VL_Account_Gate {
 		}
 
 		return (bool) apply_filters( 'vlacc_gate_enabled', (bool) VL_Account_Settings::get( 'gate_cart', 0 ) );
+	}
+
+	/**
+	 * Режим гейта: checkout — вход на оформлении, cart — вход до корзины.
+	 *
+	 * @return string
+	 */
+	public static function mode() {
+		$mode = VL_Account_Settings::get( 'gate_mode', 'checkout' );
+		$mode = 'cart' === $mode ? 'cart' : 'checkout';
+
+		return (string) apply_filters( 'vlacc_gate_mode', $mode );
+	}
+
+	/**
+	 * Вход требуется уже для добавления в корзину.
+	 *
+	 * @return bool
+	 */
+	public static function blocks_cart() {
+		return self::enabled() && 'cart' === self::mode();
+	}
+
+	/**
+	 * Вход требуется на шаге оформления заказа.
+	 *
+	 * @return bool
+	 */
+	public static function blocks_checkout() {
+		return self::enabled() && 'checkout' === self::mode();
 	}
 
 	/**
@@ -99,7 +165,9 @@ class VL_Account_Gate {
 		$text = (string) VL_Account_Settings::get( 'gate_message', '' );
 
 		if ( '' === trim( $text ) ) {
-			$text = __( 'Чтобы добавить товар в корзину, войдите или зарегистрируйтесь — это займёт минуту. Все заказы, избранное и бонусы будут в личном кабинете.', 'vl-account' );
+			$text = self::blocks_cart()
+				? __( 'Чтобы добавить товар в корзину, войдите или зарегистрируйтесь — это займёт минуту. Все заказы, избранное и бонусы будут в личном кабинете.', 'vl-account' )
+				: __( 'Чтобы оформить заказ, войдите по номеру телефона — это займёт минуту. Корзина сохранится, а заказ, бонусы и избранное будут в личном кабинете.', 'vl-account' );
 		}
 
 		return $text;
@@ -122,14 +190,29 @@ class VL_Account_Gate {
 	 * @return array
 	 */
 	public static function selectors() {
-		$default = array(
-			'.single_add_to_cart_button',
-			'.custom-buy-now-button',
-			'.add_to_cart_button',
-			'.ajax_add_to_cart',
-			'.wc-block-components-product-button__button',
-			'[data-vl-requires-auth]',
-		);
+		if ( self::blocks_cart() ) {
+			$default = array(
+				'.single_add_to_cart_button',
+				'.custom-buy-now-button',
+				'.add_to_cart_button',
+				'.ajax_add_to_cart',
+				'.wc-block-components-product-button__button',
+				'[data-vl-requires-auth]',
+			);
+		} else {
+			// Кнопки перехода к оформлению: классическая корзина, блочная,
+			// боковая корзина Elementor и популярных виджетов.
+			$default = array(
+				'.checkout-button',
+				'.wc-proceed-to-checkout a',
+				'.wc-block-cart__submit-button',
+				'.wc-block-components-checkout-place-order-button',
+				'.elementor-button--checkout',
+				'.elementor-menu-cart__footer-buttons a.elementor-button--checkout',
+				'.xoo-wsc-ft-btn-checkout',
+				'[data-vl-requires-auth]',
+			);
+		}
 
 		$extra = (string) VL_Account_Settings::get( 'gate_selectors', '' );
 
@@ -251,6 +334,77 @@ class VL_Account_Gate {
 
 		wp_safe_redirect( $back );
 		exit;
+	}
+
+	/**
+	 * Не пускаем гостя на страницу оформления заказа.
+	 *
+	 * Клик по «Оформить заказ» перехватывает скрипт и открывает панель входа,
+	 * но на страницу можно попасть и по прямой ссылке, и с выключенным JS.
+	 * Тогда возвращаем в корзину и открываем ту же панель — товары остаются
+	 * на месте, после входа посетитель продолжает с того же шага.
+	 */
+	public function guard_checkout() {
+		if ( ! self::should_block() || ! self::blocks_checkout() ) {
+			return;
+		}
+
+		if ( ! function_exists( 'is_checkout' ) || ! is_checkout() ) {
+			return;
+		}
+
+		// Страница «спасибо» и оплата заказа по ссылке из письма — не трогаем.
+		if ( ( function_exists( 'is_order_received_page' ) && is_order_received_page() )
+			|| ( function_exists( 'is_checkout_pay_page' ) && is_checkout_pay_page() ) ) {
+			return;
+		}
+
+		$next = self::current_url();
+		$back = self::checkout_fallback_url();
+
+		$back = add_query_arg(
+			array(
+				'vlacc_auth' => 1,
+				'vlacc_next' => rawurlencode( $next ),
+			),
+			$back
+		);
+
+		vlacc_log(
+			'Гость остановлен перед оформлением заказа',
+			array( 'url' => $next )
+		);
+
+		wp_safe_redirect( $back );
+		exit;
+	}
+
+	/**
+	 * Куда вернуть гостя со страницы оформления: корзина, а если её нет — страница входа.
+	 *
+	 * @return string
+	 */
+	protected static function checkout_fallback_url() {
+		$cart = function_exists( 'wc_get_cart_url' ) ? wc_get_cart_url() : '';
+
+		if ( $cart && $cart !== self::current_url() ) {
+			return $cart;
+		}
+
+		return VL_Account_Settings::auth_url();
+	}
+
+	/**
+	 * Адрес страницы оформления заказа — по нему скрипт узнаёт ссылки «оформить заказ».
+	 *
+	 * @return string
+	 */
+	public static function checkout_url() {
+		if ( ! self::blocks_checkout() || ! function_exists( 'wc_get_checkout_url' ) ) {
+			return '';
+		}
+
+		return (string) wc_get_checkout_url();
 	}
 
 	/**

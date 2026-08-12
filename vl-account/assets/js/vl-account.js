@@ -888,7 +888,41 @@
 			}
 		}
 
+		// Режим «вход на оформлении»: ловим любую ссылку на страницу оформления,
+		// как бы её ни назвала тема или виджет корзины.
+		var checkout = cfg.gate && cfg.gate.checkout_url;
+
+		if ( checkout ) {
+			var link = target.closest( 'a[href]' );
+
+			if ( link && isCheckoutLink( link.href, checkout ) ) {
+				return link;
+			}
+		}
+
 		return null;
+	}
+
+	/**
+	 * Ссылка ведёт на оформление заказа?
+	 */
+	function isCheckoutLink( href, checkout ) {
+		if ( ! href ) {
+			return false;
+		}
+
+		var path = function ( url ) {
+			try {
+				return new URL( url, window.location.origin ).pathname.replace( /\/+$/, '' );
+			} catch ( e ) {
+				return '';
+			}
+		};
+
+		var target = path( href );
+		var needle = path( checkout );
+
+		return !! needle && target === needle;
 	}
 
 	/**

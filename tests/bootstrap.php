@@ -50,7 +50,8 @@ function get_user_by( $f, $v ) {
 	return false;
 }
 function get_current_user_id() { return 1; }
-function is_user_logged_in() { return true; }
+$GLOBALS['logged_in'] = true;
+function is_user_logged_in() { return ! empty( $GLOBALS['logged_in'] ); }
 function wp_parse_args( $args, $defaults = array() ) { return array_merge( $defaults, is_array( $args ) ? $args : array() ); }
 function __( $t, $d = '' ) { return $t; }
 function esc_html__( $t, $d = '' ) { return $t; }

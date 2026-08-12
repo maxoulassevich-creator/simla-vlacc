@@ -3,7 +3,7 @@
  * Plugin Name: VL Account — вход, регистрация по SMS и личный кабинет
  * Plugin URI:  https://example.com/
  * Description: Вход и регистрация по номеру телефона через SMS.RU (код в SMS или звонком), восстановление пароля, личный кабинет WooCommerce (заказы, избранное, промокод, бонусы, согласия), автосоздание кабинета при заказе, привязка гостевых заказов. Интеграция с плагинами Simla.com (RetailCRM), WishSuite (избранное) и Back In Stock Notifier (подписка на размер). Всё выводится шорткодами.
- * Version:     1.2.1
+ * Version:     1.3.0
  * Requires PHP: 7.4
  * Requires at least: 5.8
  * Author:      —
@@ -17,7 +17,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'VLACC_VERSION', '1.2.1' );
+define( 'VLACC_VERSION', '1.3.0' );
 define( 'VLACC_FILE', __FILE__ );
 define( 'VLACC_PATH', plugin_dir_path( __FILE__ ) );
 define( 'VLACC_URL', plugin_dir_url( __FILE__ ) );
@@ -189,9 +189,11 @@ final class VL_Account_Plugin {
 				'is_logged_in' => is_user_logged_in(),
 				'auth_url'     => VL_Account_Settings::auth_url(),
 				'gate'         => array(
-					'enabled'   => VL_Account_Gate::should_block(),
-					'selectors' => VL_Account_Gate::selectors(),
-					'message'   => VL_Account_Gate::message(),
+					'enabled'      => VL_Account_Gate::should_block(),
+					'mode'         => VL_Account_Gate::mode(),
+					'selectors'    => VL_Account_Gate::selectors(),
+					'message'      => VL_Account_Gate::message(),
+					'checkout_url' => VL_Account_Gate::checkout_url(),
 				),
 				'i18n'         => array(
 					'sending'      => __( 'Отправляем…', 'vl-account' ),
