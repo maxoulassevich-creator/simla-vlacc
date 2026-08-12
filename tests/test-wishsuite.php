@@ -110,6 +110,11 @@ namespace {
 
 	$GLOBALS['ws_db'] = array();
 
+	// Все товары теста существуют и опубликованы (проверка живых ID).
+	foreach ( array( 101, 102, 103, 105, 200, 201, 300, 401, 402, 403 ) as $vl_pid ) {
+		$GLOBALS['products'][ $vl_pid ] = (object) array( 'id' => $vl_pid );
+	}
+
 	$pass = 0;
 	$fail = 0;
 
@@ -200,6 +205,24 @@ namespace {
 	check( 'показывается только наш список', array( 102, 103, 200, 201, 300 ) === $items, print_r( $items, true ) );
 	check( 'items() пустой', array() === VL_Account_WishSuite::items( 1 ) );
 	VL_Account_Settings::update( array( 'ws_enabled' => 1 ) );
+
+	echo "\n== 8.1. Удалённые и снятые с публикации товары ==\n";
+	update_user_meta( 9, VL_Account_Wishlist::META, array( 101, 103, 777 ) );
+	$GLOBALS['ws_db'][9] = array( 105 );
+	$GLOBALS['product_status'][103] = 'draft';  // снят с публикации
+	VL_Account_WishSuite::flush();
+
+	$visible = VL_Account_Wishlist::get_valid_items( 9 );
+	sort( $visible );
+	check( 'показываются только живые товары', array( 101, 105 ) === $visible, print_r( $visible, true ) );
+
+	$own = get_user_meta( 9, VL_Account_Wishlist::META, true );
+	sort( $own );
+	check( 'удалённый товар вычищен из хранилища', array( 101, 103 ) === $own, print_r( $own, true ) );
+	check( 'черновик остался в хранилище', in_array( 103, $own, true ) );
+
+	$GLOBALS['product_status'][103] = 'publish';
+	VL_Account_WishSuite::flush();
 
 	echo "\n== 9. Кнопка кабинета не дублирует сердечко ==\n";
 	check( 'наша кнопка выключена', 0 === (int) apply_filters( 'vlacc_setting_wishlist_on_product', 1 ) );

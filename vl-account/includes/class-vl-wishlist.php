@@ -29,6 +29,13 @@ class VL_Account_Wishlist {
 	private static $instance = null;
 
 	/**
+	 * Кэш проверенных списков в рамках запроса.
+	 *
+	 * @var array
+	 */
+	private static $valid_cache = array();
+
+	/**
 	 * Получить экземпляр.
 	 *
 	 * @return VL_Account_Wishlist
@@ -106,6 +113,8 @@ class VL_Account_Wishlist {
 		$user_id = $user_id ? (int) $user_id : get_current_user_id();
 		$items   = array_values( array_unique( array_filter( array_map( 'absint', (array) $items ) ) ) );
 
+		self::$valid_cache = array();
+
 		if ( $user_id ) {
 			update_user_meta( $user_id, self::META, $items );
 			return;
@@ -124,6 +133,104 @@ class VL_Account_Wishlist {
 		}
 
 		$_COOKIE[ self::COOKIE ] = implode( ',', $items );
+	}
+
+	/**
+	 * Список только из тех товаров, которые действительно можно показать.
+	 *
+	 * В избранном оседают ID удалённых товаров и товаров, отправленных в корзину
+	 * или черновики. Раньше такой ID считался счётчиком, но карточка не выводилась:
+	 * в кабинете «3 в избранном», а раздел пустой. Теперь список и счётчик
+	 * считают одно и то же, а мёртвые ID вычищаются из нашего хранилища.
+	 *
+	 * @param int $user_id Пользователь (0 — текущий/гость).
+	 * @return array
+	 */
+	public static function get_valid_items( $user_id = 0 ) {
+		$user_id = $user_id ? (int) $user_id : get_current_user_id();
+		$items   = self::get_items( $user_id );
+
+		if ( ! $items || ! vlacc_is_woo() ) {
+			return array();
+		}
+
+		$key = $user_id . ':' . implode( ',', $items );
+
+		if ( isset( self::$valid_cache[ $key ] ) ) {
+			return self::$valid_cache[ $key ];
+		}
+
+		// Один запрос на все ID: что из этого опубликовано и доступно.
+		$published = get_posts(
+			array(
+				'post_type'              => array( 'product', 'product_variation' ),
+				'post__in'               => $items,
+				'post_status'            => array( 'publish', 'private' ),
+				'posts_per_page'         => count( $items ),
+				'fields'                 => 'ids',
+				'no_found_rows'          => true,
+				'ignore_sticky_posts'    => true,
+				'update_post_meta_cache' => false,
+				'update_post_term_cache' => false,
+			)
+		);
+
+		$published = array_map( 'absint', (array) $published );
+
+		// Порядок избранного сохраняем: get_posts возвращает свой.
+		$valid = array_values( array_intersect( $items, $published ) );
+
+		// Второй запрос: какие ID вообще существуют (черновик и корзина — существуют).
+		$existing = get_posts(
+			array(
+				'post_type'              => array( 'product', 'product_variation' ),
+				'post__in'               => $items,
+				'post_status'            => 'any',
+				'posts_per_page'         => count( $items ),
+				'fields'                 => 'ids',
+				'no_found_rows'          => true,
+				'ignore_sticky_posts'    => true,
+				'update_post_meta_cache' => false,
+				'update_post_term_cache' => false,
+			)
+		);
+
+		$gone = array_diff( $items, array_map( 'absint', (array) $existing ) );
+
+		if ( $gone ) {
+			self::forget( $gone, $user_id );
+		}
+
+		self::$valid_cache[ $key ] = $valid;
+
+		return $valid;
+	}
+
+	/**
+	 * Забыть товары, которых больше нет в каталоге.
+	 *
+	 * Чистим только своё хранилище; сторонние плагины подчищают своё
+	 * по событию vlacc_wishlist_forget.
+	 *
+	 * @param array $ids     ID товаров.
+	 * @param int   $user_id Пользователь.
+	 */
+	protected static function forget( $ids, $user_id = 0 ) {
+		$ids     = array_values( array_filter( array_map( 'absint', (array) $ids ) ) );
+		$user_id = $user_id ? (int) $user_id : get_current_user_id();
+
+		if ( ! $ids ) {
+			return;
+		}
+
+		$raw   = self::raw_items( $user_id );
+		$clean = array_values( array_diff( $raw, $ids ) );
+
+		if ( count( $clean ) !== count( $raw ) ) {
+			self::save( $clean, $user_id );
+		}
+
+		do_action( 'vlacc_wishlist_forget', $ids, $user_id );
 	}
 
 	/**
@@ -180,10 +287,13 @@ class VL_Account_Wishlist {
 	/**
 	 * Сколько товаров в избранном.
 	 *
+	 * Считаем только то, что реально показывается в кабинете, — иначе счётчик
+	 * расходится с разделом.
+	 *
 	 * @return int
 	 */
 	public static function count() {
-		return count( self::get_items() );
+		return vlacc_is_woo() ? count( self::get_valid_items() ) : count( self::get_items() );
 	}
 
 	/**

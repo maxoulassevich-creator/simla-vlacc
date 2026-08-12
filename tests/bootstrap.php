@@ -181,6 +181,32 @@ class WP_Post {
 }
 
 function get_post( $id ) { return $GLOBALS['posts'][ (int) $id ] ?? null; }
+
+/**
+ * Заглушка get_posts: поддерживает выборку товаров по post__in и статусу.
+ * Товары объявляются в $GLOBALS['products'], их статусы — в $GLOBALS['product_status'].
+ */
+function get_posts( $args = array() ) {
+	$ids    = array_map( 'absint', (array) ( $args['post__in'] ?? array() ) );
+	$status = $args['post_status'] ?? 'publish';
+	$result = array();
+
+	foreach ( $ids as $id ) {
+		if ( ! isset( $GLOBALS['products'][ $id ] ) ) {
+			continue;
+		}
+
+		$post_status = $GLOBALS['product_status'][ $id ] ?? 'publish';
+
+		if ( 'any' !== $status && ! in_array( $post_status, (array) $status, true ) ) {
+			continue;
+		}
+
+		$result[] = $id;
+	}
+
+	return $result;
+}
 function get_post_meta( $id, $key, $single = false ) { return $GLOBALS['postmeta'][ (int) $id ][ $key ] ?? ''; }
 function update_post_meta( $id, $key, $value ) { $GLOBALS['postmeta'][ (int) $id ][ $key ] = $value; return true; }
 function get_the_title( $id ) { $p = get_post( $id ); return $p ? $p->post_title : ''; }

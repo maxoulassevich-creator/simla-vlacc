@@ -79,6 +79,9 @@ class VL_Account_WishSuite {
 			add_action( 'vlacc_wishlist_merged', array( $this, 'merge_guest' ) );
 			add_action( 'wp_login', array( $this, 'merge_guest_on_login' ), 20, 2 );
 
+			// Записи об удалённых товарах чистим и у него.
+			add_action( 'vlacc_wishlist_forget', array( $this, 'forget' ), 10, 2 );
+
 			// Одно сердечко на карточке товара вместо двух.
 			add_filter( 'vlacc_setting_wishlist_on_product', array( $this, 'maybe_hide_our_button' ) );
 		}
@@ -380,6 +383,38 @@ class VL_Account_WishSuite {
 		return true;
 	}
 
+	/**
+	 * Удалить из WishSuite записи о товарах, которых больше нет в каталоге.
+	 *
+	 * @param array $ids     ID товаров.
+	 * @param int   $user_id Пользователь.
+	 */
+	public function forget( $ids, $user_id = 0 ) {
+		if ( ! self::enabled() || ! VL_Account_Settings::get( 'ws_two_way', 1 ) ) {
+			return;
+		}
+
+		$user_id = (int) $user_id;
+
+		if ( ! $user_id ) {
+			return;
+		}
+
+		$known = self::items_from_db( $user_id );
+
+		foreach ( (array) $ids as $product_id ) {
+			$product_id = (int) $product_id;
+
+			if ( ! $product_id || ! in_array( $product_id, $known, true ) ) {
+				continue;
+			}
+
+			\WishSuite\Manage_Data::instance()->delete( $user_id, $product_id );
+		}
+
+		self::$cache = array();
+	}
+
 	/* ------------------------------------------------------------------
 	 * Перенос избранного гостя
 	 * ------------------------------------------------------------------ */
@@ -625,6 +660,10 @@ class VL_Account_WishSuite {
 			$own = get_user_meta( $user_id, VL_Account_Wishlist::META, true );
 			$own = is_array( $own ) ? $own : array();
 
+			$all     = VL_Account_Wishlist::get_items( $user_id );
+			$visible = VL_Account_Wishlist::get_valid_items( $user_id );
+			$hidden  = array_diff( $all, $visible );
+
 			$checks[] = array(
 				'title'  => __( 'Избранное текущего пользователя', 'vl-account' ),
 				'status' => 'ok',
@@ -634,6 +673,23 @@ class VL_Account_WishSuite {
 					count( self::items( $user_id ) ),
 					count( $own )
 				),
+			);
+
+			$checks[] = array(
+				'title'  => __( 'Показывается в разделе', 'vl-account' ),
+				'status' => $hidden ? 'warn' : 'ok',
+				'text'   => $hidden
+					? sprintf(
+						/* translators: 1: сколько показывается, 2: список ID. */
+						esc_html__( 'Показывается %1$d. Скрыты ID %2$s — эти товары удалены, в корзине или сняты с публикации.', 'vl-account' ),
+						count( $visible ),
+						esc_html( implode( ', ', $hidden ) )
+					)
+					: sprintf(
+						/* translators: %d — количество товаров. */
+						esc_html__( 'Показывается %d — совпадает со счётчиком.', 'vl-account' ),
+						count( $visible )
+					),
 			);
 		}
 
