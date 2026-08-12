@@ -7,7 +7,6 @@ require __DIR__ . '/bootstrap.php';
 
 function esc_html_e( $t, $d = '' ) { echo $t; }
 function esc_attr_e( $t, $d = '' ) { echo $t; }
-function wc_price( $v ) { return '<span>' . number_format( (float) $v, 2, ',', ' ' ) . ' ₽</span>'; }
 function wp_strip_all_tags( $t ) { return strip_tags( (string) $t ); }
 function wc_get_page_permalink( $p ) { return 'https://example.test/my-account/'; }
 function wc_get_endpoint_url( $e, $v = '', $u = '' ) { return $u . $e . '/' . ( $v ? $v . '/' : '' ); }

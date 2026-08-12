@@ -151,6 +151,15 @@ class VL_Account_Settings {
 			'sn_show_sent'         => 1,        // Показывать и те, по которым письмо уже ушло.
 			'sn_match_email'       => 1,        // Искать подписки ещё и по e-mail покупателя.
 
+			// Брошенные корзины.
+			'carts_enabled'        => 1,        // Собирать корзины покупателей.
+			'carts_abandoned_after' => 60,      // Через сколько минут корзина считается брошенной.
+			'carts_keep_days'      => 30,       // Сколько дней хранить записи.
+
+			// Автозаполнение форм.
+			'autofill'             => 1,        // Атрибуты autocomplete на полях WooCommerce.
+			'autofill_fix_forms'   => 1,        // Снимать autocomplete="off" с форм темы.
+
 			// Прочее.
 			'logging'             => 1,
 			'no_cache'            => 1,

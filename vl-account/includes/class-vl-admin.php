@@ -57,6 +57,56 @@ class VL_Account_Admin {
 			'dashicons-admin-users',
 			58
 		);
+
+		add_submenu_page(
+			'vl-account',
+			__( 'Настройки кабинета', 'vl-account' ),
+			__( 'Настройки', 'vl-account' ),
+			'manage_options',
+			'vl-account',
+			array( $this, 'render' )
+		);
+
+		$carts = add_submenu_page(
+			'vl-account',
+			__( 'Брошенные корзины', 'vl-account' ),
+			__( 'Брошенные корзины', 'vl-account' ),
+			'manage_options',
+			'vl-account-carts',
+			array( 'VL_Account_Carts', 'render_admin' )
+		);
+
+		// Счётчик брошенных корзин прямо в меню — как у комментариев.
+		if ( $carts && VL_Account_Carts::enabled() ) {
+			add_action( 'admin_head', array( $this, 'carts_bubble' ) );
+		}
+	}
+
+	/**
+	 * Счётчик брошенных корзин в пункте меню.
+	 */
+	public function carts_bubble() {
+		global $submenu;
+
+		if ( empty( $submenu['vl-account'] ) ) {
+			return;
+		}
+
+		$stats = VL_Account_Carts::stats();
+
+		if ( empty( $stats['abandoned'] ) ) {
+			return;
+		}
+
+		foreach ( $submenu['vl-account'] as $key => $item ) {
+			if ( isset( $item[2] ) && 'vl-account-carts' === $item[2] ) {
+				$submenu['vl-account'][ $key ][0] .= sprintf(
+					' <span class="awaiting-mod"><span class="pending-count">%d</span></span>',
+					(int) $stats['abandoned']
+				);
+				break;
+			}
+		}
 	}
 
 	/**
@@ -657,6 +707,62 @@ class VL_Account_Admin {
 				__( 'После заказа покупателю приходит второе, отдельное письмо со ссылкой подтверждения. Пока по ней не перешли, адрес к кабинету не привязывается — так нельзя записать на себя чужую почту.', 'vl-account' )
 			);
 			$this->text( 'email_confirm_days', $s, __( 'Ссылка подтверждения живёт, дней', 'vl-account' ), '', 'number' );
+			?>
+		</table>
+
+		<h2><?php esc_html_e( 'Брошенные корзины', 'vl-account' ); ?></h2>
+
+		<p class="description" style="max-width:900px">
+			<?php
+			printf(
+				/* translators: %s — ссылка на страницу отчёта. */
+				esc_html__( 'Плагин записывает, что покупатели складывают в корзину, и показывает это в разделе %s. Гость виден как «неизвестный покупатель», но список его товаров сохраняется.', 'vl-account' ),
+				'<a href="' . esc_url( admin_url( 'admin.php?page=vl-account-carts' ) ) . '">' . esc_html__( 'Брошенные корзины', 'vl-account' ) . '</a>'
+			);
+			?>
+		</p>
+
+		<table class="form-table" role="presentation">
+			<?php
+			$this->checkbox(
+				'carts_enabled',
+				$s,
+				__( 'Собирать корзины', 'vl-account' ),
+				__( 'Снимок корзины сохраняется при каждом изменении. Когда покупатель оформляет заказ, запись помечается как купленная.', 'vl-account' )
+			);
+			$this->text(
+				'carts_abandoned_after',
+				$s,
+				__( 'Считать брошенной через, минут', 'vl-account' ),
+				__( 'Столько корзина должна пролежать без изменений, чтобы попасть в отчёт.', 'vl-account' ),
+				'number'
+			);
+			$this->text(
+				'carts_keep_days',
+				$s,
+				__( 'Хранить записи, дней', 'vl-account' ),
+				__( 'Старые записи удаляются автоматически раз в сутки.', 'vl-account' ),
+				'number'
+			);
+			?>
+		</table>
+
+		<h2><?php esc_html_e( 'Автозаполнение форм', 'vl-account' ); ?></h2>
+
+		<table class="form-table" role="presentation">
+			<?php
+			$this->checkbox(
+				'autofill',
+				$s,
+				__( 'Автозаполнение полей заказа', 'vl-account' ),
+				__( 'Полям оформления проставляются правильные атрибуты autocomplete — браузер подставляет сохранённые имя, телефон, почту и адрес. Данные из аккаунта тоже подставляются в пустые поля.', 'vl-account' )
+			);
+			$this->checkbox(
+				'autofill_fix_forms',
+				$s,
+				__( 'Чинить остальные формы сайта', 'vl-account' ),
+				__( 'С форм темы и конструкторов снимается запрет автозаполнения, а полям по их именам проставляется подходящий тип. Форму входа по номеру телефона и поля одноразового кода это не затрагивает.', 'vl-account' )
+			);
 			?>
 		</table>
 		<?php
@@ -1335,7 +1441,7 @@ class VL_Account_Admin {
 			'sms'     => array( 'test_mode', 'debug_show_code' ),
 			'forms'   => array( 'passwordless', 'auto_register', 'auth_marketing_box', 'show_telegram', 'gate_cart', 'consent_privacy', 'consent_marketing' ),
 			'account' => array( 'wishlist_on_product', 'ws_enabled', 'ws_two_way', 'ws_merge_guest', 'ws_hide_our_button', 'ws_size_buttons', 'sn_enabled', 'sn_show_sent', 'sn_match_email' ),
-			'orders'  => array( 'auto_create_account', 'attach_guest_orders', 'match_by_phone', 'email_on_register', 'email_on_autocreate', 'email_confirm' ),
+			'orders'  => array( 'auto_create_account', 'attach_guest_orders', 'match_by_phone', 'email_on_register', 'email_on_autocreate', 'email_confirm', 'carts_enabled', 'autofill', 'autofill_fix_forms' ),
 			'crm'     => array( 'crm_enabled', 'crm_sync_customer', 'crm_sync_consents', 'crm_skip_tech_email', 'crm_order_priority', 'crm_loyalty_ui', 'crm_hide_wc_loyalty', 'crm_credit_top', 'crm_promo_combine', 'crm_promo_hide_loyalty', 'crm_fix_coupon_email' ),
 			'design'  => array(),
 		);

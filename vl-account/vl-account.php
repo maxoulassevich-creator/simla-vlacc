@@ -2,8 +2,8 @@
 /**
  * Plugin Name: VL Account — вход, регистрация по SMS и личный кабинет
  * Plugin URI:  https://example.com/
- * Description: Вход и регистрация по номеру телефона через SMS.RU (код в SMS или звонком), восстановление пароля, личный кабинет WooCommerce (заказы, избранное, промокод, бонусы, согласия), автосоздание кабинета при заказе, привязка гостевых заказов. Интеграция с плагинами Simla.com (RetailCRM), WishSuite (избранное) и Back In Stock Notifier (подписка на размер). Всё выводится шорткодами.
- * Version:     1.3.0
+ * Description: Вход и регистрация по номеру телефона через SMS.RU (код в SMS или звонком), восстановление пароля, личный кабинет WooCommerce (заказы, избранное, промокод, бонусы, согласия), автосоздание кабинета при заказе, привязка гостевых заказов, отчёт по брошенным корзинам, автозаполнение форм. Интеграция с плагинами Simla.com (RetailCRM), WishSuite (избранное) и Back In Stock Notifier (подписка на размер). Всё выводится шорткодами.
+ * Version:     1.4.0
  * Requires PHP: 7.4
  * Requires at least: 5.8
  * Author:      —
@@ -17,7 +17,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'VLACC_VERSION', '1.3.0' );
+define( 'VLACC_VERSION', '1.4.0' );
 define( 'VLACC_FILE', __FILE__ );
 define( 'VLACC_PATH', plugin_dir_path( __FILE__ ) );
 define( 'VLACC_URL', plugin_dir_url( __FILE__ ) );
@@ -45,6 +45,8 @@ require_once VLACC_PATH . 'includes/class-vl-emails.php';
 require_once VLACC_PATH . 'includes/class-vl-email-confirm.php';
 require_once VLACC_PATH . 'includes/class-vl-cache.php';
 require_once VLACC_PATH . 'includes/class-vl-gate.php';
+require_once VLACC_PATH . 'includes/class-vl-carts.php';
+require_once VLACC_PATH . 'includes/class-vl-autofill.php';
 require_once VLACC_PATH . 'includes/class-vl-shortcodes.php';
 require_once VLACC_PATH . 'includes/class-vl-admin.php';
 
@@ -137,6 +139,8 @@ final class VL_Account_Plugin {
 		VL_Account_Cache::instance();
 		VL_Account_Shortcodes::instance();
 		VL_Account_Gate::instance();
+		VL_Account_Carts::instance();
+		VL_Account_Autofill::instance();
 
 		if ( is_admin() ) {
 			VL_Account_Admin::instance();
@@ -241,6 +245,10 @@ function vlacc_activate() {
 	if ( false === get_option( 'vlacc_settings' ) ) {
 		add_option( 'vlacc_settings', VL_Account_Settings::defaults() );
 	}
+
+	if ( class_exists( 'VL_Account_Carts' ) ) {
+		VL_Account_Carts::install();
+	}
 	set_transient( 'vlacc_activated', 1, 60 );
 }
 register_activation_hook( __FILE__, 'vlacc_activate' );
@@ -250,5 +258,6 @@ register_activation_hook( __FILE__, 'vlacc_activate' );
  */
 function vlacc_deactivate() {
 	flush_rewrite_rules();
+	wp_clear_scheduled_hook( 'vlacc_carts_cleanup' );
 }
 register_deactivation_hook( __FILE__, 'vlacc_deactivate' );

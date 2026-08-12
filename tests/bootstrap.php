@@ -6,6 +6,7 @@
 define( 'ABSPATH', '/tmp/wp/' );
 define( 'DAY_IN_SECONDS', 86400 );
 define( 'HOUR_IN_SECONDS', 3600 );
+define( 'MINUTE_IN_SECONDS', 60 );
 define( 'COOKIEPATH', '/' );
 define( 'COOKIE_DOMAIN', '' );
 
@@ -49,7 +50,7 @@ function get_user_by( $f, $v ) {
 	}
 	return false;
 }
-function get_current_user_id() { return 1; }
+function get_current_user_id() { return ! empty( $GLOBALS['logged_in'] ) ? (int) ( $GLOBALS['current_user_id'] ?? 1 ) : 0; }
 $GLOBALS['logged_in'] = true;
 function is_user_logged_in() { return ! empty( $GLOBALS['logged_in'] ); }
 function wp_parse_args( $args, $defaults = array() ) { return array_merge( $defaults, is_array( $args ) ? $args : array() ); }
@@ -66,6 +67,21 @@ function number_format_i18n( $n, $d = 0 ) { return number_format( (float) $n, $d
 function current_time( $t ) { return gmdate( 'Y-m-d H:i:s' ); }
 function wp_json_encode( $v ) { return json_encode( $v ); }
 function wp_rand( $min = 0, $max = 0 ) { return random_int( 1, 999999 ); }
+function wp_list_pluck( $list, $field ) {
+	$out = array();
+	foreach ( (array) $list as $row ) {
+		if ( is_array( $row ) && isset( $row[ $field ] ) ) { $out[] = $row[ $field ]; }
+		elseif ( is_object( $row ) && isset( $row->$field ) ) { $out[] = $row->$field; }
+	}
+	return $out;
+}
+function wp_next_scheduled( $hook, $args = array() ) { return false; }
+function wp_schedule_event( $ts, $recurrence, $hook, $args = array() ) { return true; }
+function wp_clear_scheduled_hook( $hook, $args = array() ) { return 0; }
+function wp_generate_password( $length = 12, $special = true, $extra = false ) { return substr( str_repeat( 'abcdef0123456789', 8 ), 0, $length ); }
+function is_ssl() { return true; }
+function human_time_diff( $from, $to = 0 ) { return '5 мин.'; }
+function wc_price( $value ) { return number_format( (float) $value, 2, ',', ' ' ) . ' ₽'; }
 function absint( $v ) { return abs( (int) $v ); }
 function is_email( $v ) { return (bool) filter_var( $v, FILTER_VALIDATE_EMAIL ); }
 function sanitize_email( $v ) { return trim( (string) $v ); }
@@ -169,6 +185,19 @@ class WC_Retailcrm_Loyalty {
 
 $GLOBALS['posts']    = array();
 $GLOBALS['postmeta'] = array();
+
+class WP_User {
+	public $ID = 0;
+	public $user_email = '';
+	public $user_login = '';
+	public $display_name = '';
+	public $first_name = '';
+	public $last_name = '';
+	public function __construct( $data = array() ) {
+		foreach ( $data as $key => $value ) { $this->$key = $value; }
+	}
+	public function get( $field ) { return $this->$field ?? ''; }
+}
 
 class WP_Post {
 	public $ID;

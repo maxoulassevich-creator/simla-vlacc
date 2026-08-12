@@ -13,6 +13,7 @@ $files = array(
 	'test.php'           => 'Данные лояльности, покупатель, промокоды',
 	'test-cart.php'      => 'Списание баллов в корзине',
 	'test-gate.php'      => 'Вход перед покупкой',
+	'test-carts.php'     => 'Брошенные корзины и автозаполнение',
 	'test-wishsuite.php' => 'Избранное WishSuite',
 	'test-subscriptions.php' => 'Подписки на поступление',
 	'test-templates.php' => 'Шаблоны кабинета и корзины',
