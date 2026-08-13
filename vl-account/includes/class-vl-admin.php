@@ -502,7 +502,21 @@ class VL_Account_Admin {
 					<?php endforeach; ?>
 				</td>
 			</tr>
-			<?php $this->checkbox( 'wishlist_on_product', $s, __( 'Кнопка «в избранное» в карточке', 'vl-account' ), __( 'Добавить кнопку на страницу товара автоматически. Если на сайте уже есть своя кнопка — не включайте, используйте шорткод.', 'vl-account' ) ); ?>
+			<?php
+			$this->checkbox( 'wishlist_on_product', $s, __( 'Кнопка «в избранное» в карточке', 'vl-account' ), __( 'Добавить кнопку на страницу товара автоматически. Если на сайте уже есть своя кнопка — не включайте, используйте шорткод.', 'vl-account' ) );
+			$this->checkbox(
+				'profile_address',
+				$s,
+				__( 'Адрес в разделе «Мои данные»', 'vl-account' ),
+				__( 'Поля оплаты и доставки прямо в кабинете — теми же полями, что и на оформлении заказа. Пустые заполняются данными из последнего заказа. Если выключить, останется ссылка на стандартную страницу WooCommerce.', 'vl-account' )
+			);
+			$this->checkbox(
+				'profile_shipping',
+				$s,
+				__( 'Отдельный адрес доставки', 'vl-account' ),
+				__( 'Второй блок полей — на случай, когда доставка идёт не туда, где выставляется счёт.', 'vl-account' )
+			);
+			?>
 		</table>
 
 		<h2><?php esc_html_e( 'Промокод за регистрацию', 'vl-account' ); ?></h2>
@@ -1440,7 +1454,7 @@ class VL_Account_Admin {
 		$checkbox_map = array(
 			'sms'     => array( 'test_mode', 'debug_show_code' ),
 			'forms'   => array( 'passwordless', 'auto_register', 'auth_marketing_box', 'show_telegram', 'gate_cart', 'consent_privacy', 'consent_marketing' ),
-			'account' => array( 'wishlist_on_product', 'ws_enabled', 'ws_two_way', 'ws_merge_guest', 'ws_hide_our_button', 'ws_size_buttons', 'sn_enabled', 'sn_show_sent', 'sn_match_email' ),
+			'account' => array( 'wishlist_on_product', 'profile_address', 'profile_shipping', 'ws_enabled', 'ws_two_way', 'ws_merge_guest', 'ws_hide_our_button', 'ws_size_buttons', 'sn_enabled', 'sn_show_sent', 'sn_match_email' ),
 			'orders'  => array( 'auto_create_account', 'attach_guest_orders', 'match_by_phone', 'email_on_register', 'email_on_autocreate', 'email_confirm', 'carts_enabled', 'autofill', 'autofill_fix_forms' ),
 			'crm'     => array( 'crm_enabled', 'crm_sync_customer', 'crm_sync_consents', 'crm_skip_tech_email', 'crm_order_priority', 'crm_loyalty_ui', 'crm_hide_wc_loyalty', 'crm_credit_top', 'crm_promo_combine', 'crm_promo_hide_loyalty', 'crm_fix_coupon_email' ),
 			'design'  => array(),

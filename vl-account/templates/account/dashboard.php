@@ -71,6 +71,23 @@ if ( class_exists( 'VL_Account_RetailCRM_Loyalty' ) && VL_Account_RetailCRM::loy
 		<?php endif; ?>
 	<?php endif; ?>
 
+	<?php
+	// Куда везём — самое частое, что покупатель проверяет перед заказом.
+	$vl_address = '';
+
+	if ( class_exists( 'VL_Account_Address' ) && VL_Account_Address::enabled() ) {
+		$vl_address = VL_Account_Address::formatted( $user_id, VL_Account_Address::shipping_enabled() ? 'shipping' : 'billing' );
+	}
+	?>
+
+	<?php if ( $vl_address ) : ?>
+		<div class="vl-dash-address">
+			<span class="vl-dash-address__label"><?php esc_html_e( 'Адрес доставки', 'vl-account' ); ?></span>
+			<span class="vl-dash-address__value"><?php echo esc_html( $vl_address ); ?></span>
+			<a class="vl-link" href="<?php echo esc_url( VL_Account_Router::url( 'profile' ) ); ?>"><?php esc_html_e( 'изменить', 'vl-account' ); ?></a>
+		</div>
+	<?php endif; ?>
+
 	<h3 class="vl-subtitle"><?php esc_html_e( 'Последние заказы', 'vl-account' ); ?></h3>
 
 	<?php if ( $vl_orders ) : ?>

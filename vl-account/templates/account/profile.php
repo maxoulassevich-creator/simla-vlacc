@@ -89,7 +89,22 @@ if ( $vl_pending && ! $vl_email ) {
 </form>
 
 <?php
-if ( vlacc_is_woo() ) :
+// Адреса оплаты и доставки — теми же полями, что и на оформлении заказа.
+if ( class_exists( 'VL_Account_Address' ) && VL_Account_Address::enabled() ) :
+	foreach ( VL_Account_Address::sections() as $vl_section => $vl_meta ) :
+		vlacc_template(
+			'parts/address-form.php',
+			array(
+				'section' => $vl_section,
+				'title'   => isset( $vl_meta['title'] ) ? $vl_meta['title'] : '',
+				'hint'    => isset( $vl_meta['hint'] ) ? $vl_meta['hint'] : '',
+				'user_id' => $user_id,
+			)
+		);
+	endforeach;
+
+elseif ( vlacc_is_woo() ) :
+	// Блок адресов выключен — оставляем ссылку на стандартную страницу WooCommerce.
 	$vl_addresses = wc_get_account_menu_items();
 
 	if ( isset( $vl_addresses['edit-address'] ) ) :

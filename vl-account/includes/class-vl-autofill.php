@@ -269,6 +269,17 @@ class VL_Account_Autofill {
 				return $user && $user->last_name ? $user->last_name : $value;
 		}
 
+		$is_address = 0 === strpos( $key, 'billing_' ) || 0 === strpos( $key, 'shipping_' );
+
+		// Остальные поля адреса — из кабинета, а если там пусто, из последнего заказа.
+		if ( $is_address && class_exists( 'VL_Account_Address' ) && VL_Account_Address::enabled() ) {
+			$from_account = VL_Account_Address::value( $user_id, $key );
+
+			if ( '' !== $from_account ) {
+				return $from_account;
+			}
+		}
+
 		return $value;
 	}
 

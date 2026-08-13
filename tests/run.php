@@ -16,6 +16,7 @@ $files = array(
 	'test-carts.php'     => 'Брошенные корзины и автозаполнение',
 	'test-wishsuite.php' => 'Избранное WishSuite',
 	'test-subscriptions.php' => 'Подписки на поступление',
+	'test-address.php'   => 'Адреса оплаты и доставки',
 	'test-templates.php' => 'Шаблоны кабинета и корзины',
 );
 

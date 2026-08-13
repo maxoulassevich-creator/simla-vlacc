@@ -95,6 +95,8 @@ class VL_Account_Settings {
 			'tabs'                => array( 'dashboard', 'orders', 'wishlist', 'promo', 'bonus', 'subscriptions', 'profile', 'security' ),
 			'loyalty_page'        => 0,       // Страница условий программы лояльности.
 			'wishlist_on_product' => 0,       // Кнопка «в избранное» на странице товара.
+			'profile_address'     => 1,       // Адрес оплаты в разделе «Мои данные».
+			'profile_shipping'    => 1,       // Отдельный адрес доставки там же.
 
 			// Промокод за регистрацию.
 			'promo_mode'          => 'none',  // none | shared | personal.

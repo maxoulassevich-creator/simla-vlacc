@@ -1735,3 +1735,143 @@ body.vl-drawer-open {
 .vl-table--subs td:last-child .vl-link {
 	margin-left: 10px;
 }
+
+/* Адреса оплаты и доставки в кабинете */
+
+.vl-address {
+	margin-top: 34px;
+	padding-top: 26px;
+	border-top: 1px solid var(--vl-border);
+}
+
+.vl-address__title {
+	margin: 0 0 6px;
+	font-size: 15px;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+
+.vl-address__hint,
+.vl-address__summary {
+	margin: 0 0 14px;
+	font-size: 13px;
+	line-height: 1.5;
+	color: var(--vl-muted);
+}
+
+.vl-address__summary {
+	margin-bottom: 18px;
+	color: var(--vl-text);
+}
+
+/* Поля рисует WooCommerce — приводим их к виду остальных полей кабинета. */
+.vl-address__grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 0 18px;
+}
+
+.vl-address__grid .form-row {
+	display: block;
+	margin: 0 0 18px;
+	padding: 0;
+	min-width: 0;
+}
+
+.vl-address__grid .form-row-wide,
+.vl-address__grid .vl-address__row--wide {
+	grid-column: 1 / -1;
+}
+
+.vl-address__grid label {
+	display: block;
+	font-size: 13px;
+	line-height: 1.3;
+	color: #4a4a4a;
+	margin-bottom: 7px;
+}
+
+.vl-address__grid .required {
+	color: var(--vl-accent);
+	text-decoration: none;
+	border: 0;
+}
+
+.vl-address__grid .optional {
+	color: var(--vl-muted);
+}
+
+.vl-address__grid input.input-text,
+.vl-address__grid select,
+.vl-address__grid .select2-container .select2-selection--single {
+	width: 100%;
+	height: 44px;
+	padding: 10px 14px;
+	border: 1px solid var(--vl-border);
+	border-radius: var(--vl-radius);
+	background: #fff;
+	font: inherit;
+	font-size: 14px;
+	color: var(--vl-text);
+	transition: border-color 0.2s;
+	appearance: none;
+}
+
+.vl-address__grid input.input-text:focus,
+.vl-address__grid select:focus {
+	outline: none;
+	border-color: var(--vl-border-strong);
+}
+
+.vl-address__grid input.is-error,
+.vl-address__grid select.is-error {
+	border-color: var(--vl-error);
+}
+
+/* Выпадающий список стран WooCommerce рисует через select2. */
+.vl-address__grid .select2-container .select2-selection--single {
+	display: flex;
+	align-items: center;
+}
+
+.vl-address__grid .select2-container .select2-selection__arrow {
+	height: 42px;
+}
+
+.vl-address .vl-btn {
+	margin-top: 4px;
+}
+
+@media (max-width: 600px) {
+	.vl-address__grid {
+		grid-template-columns: minmax(0, 1fr);
+	}
+}
+
+/* Адрес доставки в сводке кабинета */
+
+.vl-dash-address {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: 4px 12px;
+	margin: 22px 0 0;
+	padding: 14px 16px;
+	background: var(--vl-bg-soft);
+	border-radius: var(--vl-radius);
+	font-size: 14px;
+	line-height: 1.5;
+}
+
+.vl-dash-address__label {
+	font-size: 12px;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	color: var(--vl-muted);
+}
+
+.vl-dash-address__value {
+	flex: 1 1 240px;
+	min-width: 0;
+}

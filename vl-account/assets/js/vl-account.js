@@ -74,7 +74,7 @@
 			el.classList.remove( 'is-visible' );
 		} );
 
-		qsa( form, '.vl-input' ).forEach( function ( el ) {
+		qsa( form, '.is-error' ).forEach( function ( el ) {
 			el.classList.remove( 'is-error' );
 		} );
 
@@ -85,6 +85,14 @@
 		Object.keys( errors ).forEach( function ( name ) {
 			var holder = qs( form, '[data-vl-error="' + name + '"]' );
 			var input = qs( form, '[name="' + name + '"]' );
+
+			// У полей WooCommerce своего места под ошибку нет — добавим.
+			if ( ! holder && input && input.parentNode ) {
+				holder = document.createElement( 'span' );
+				holder.className = 'vl-field__error';
+				holder.setAttribute( 'data-vl-error', name );
+				input.parentNode.appendChild( holder );
+			}
 
 			if ( holder ) {
 				holder.textContent = errors[ name ];
@@ -525,6 +533,54 @@
 		} ).then( function ( res ) {
 			loading( button, false );
 			message( form, ( res.data && res.data.message ) || cfg.i18n.network, res.success ? 'success' : 'error' );
+		} );
+	}
+
+	/**
+	 * Сохранение адреса оплаты или доставки.
+	 *
+	 * Поля рисует WooCommerce, поэтому собираем их со страницы как есть —
+	 * состав отличается от страны к стране.
+	 */
+	function saveAddress( form, button ) {
+		message( form, '' );
+		fieldErrors( form, null );
+		loading( button, true );
+
+		var data = { section: form.dataset.vlSection || 'billing' };
+
+		qsa( form, 'input[name], select[name], textarea[name]' ).forEach( function ( el ) {
+			if ( ! el.name || 'vlacc_hp' === el.name || 'submit' === el.type ) {
+				return;
+			}
+
+			if ( ( 'checkbox' === el.type || 'radio' === el.type ) && ! el.checked ) {
+				return;
+			}
+
+			data[ el.name ] = el.value;
+		} );
+
+		post( 'address_save', data ).then( function ( res ) {
+			loading( button, false );
+
+			if ( ! res.success ) {
+				if ( res.data && res.data.errors ) {
+					fieldErrors( form, res.data.errors );
+				}
+
+				message( form, ( res.data && res.data.message ) || cfg.i18n.network, 'error' );
+				return;
+			}
+
+			var box = form.closest( '[data-vl-address]' );
+			var summary = box ? qs( box, '[data-vl-address-summary]' ) : null;
+
+			if ( summary && res.data && res.data.formatted ) {
+				summary.textContent = res.data.formatted;
+			}
+
+			message( form, ( res.data && res.data.message ) || '', 'success' );
 		} );
 	}
 
@@ -1126,6 +1182,9 @@
 		},
 		'save-profile': function ( form, button ) {
 			saveProfile( form, button );
+		},
+		'save-address': function ( form, button ) {
+			saveAddress( form, button );
 		},
 		'save-password': function ( form, button ) {
 			savePassword( form, button );
