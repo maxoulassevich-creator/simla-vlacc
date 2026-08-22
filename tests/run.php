@@ -17,6 +17,7 @@ $files = array(
 	'test-wishsuite.php' => 'Избранное WishSuite',
 	'test-subscriptions.php' => 'Подписки на поступление',
 	'test-address.php'   => 'Адреса оплаты и доставки',
+	'test-icons.php'     => 'Иконки плагина',
 	'test-templates.php' => 'Шаблоны кабинета и корзины',
 );
 

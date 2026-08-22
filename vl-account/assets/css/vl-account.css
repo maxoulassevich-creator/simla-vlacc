@@ -33,6 +33,25 @@
 	box-sizing: border-box;
 }
 
+/* --------------------------------------------------
+   Иконки: тонкая линия, как у иконок темы
+   -------------------------------------------------- */
+
+/* Тема часто задаёт svg { fill: currentColor } — тогда контурная иконка
+   превращается в жирное пятно. Заливку снимаем на всех уровнях. */
+.vl-icon,
+.vl-icon path,
+.vl-icon circle {
+	fill: none;
+	stroke: currentColor;
+	vertical-align: middle;
+}
+
+.vl-icon {
+	flex: 0 0 auto;
+	overflow: visible;
+}
+
 /* Атрибут hidden должен побеждать наши display у классов. */
 .vl-auth [hidden],
 .vl-account [hidden],
@@ -1076,6 +1095,12 @@ body.vl-drawer-open {
 	transform: scale(1.08);
 }
 
+/* Сердечко в избранном — единственная иконка, которую заливаем. */
+.vl-wishlist-btn.is-active .vl-icon,
+.vl-wishlist-btn.is-active .vl-icon path {
+	fill: currentColor;
+}
+
 /* Промокоды */
 
 .vl-promo-banner {
@@ -1665,53 +1690,92 @@ body.vl-drawer-open {
 }
 
 /* --------------------------------------------------
-   Размеры кнопками в быстрой корзине WishSuite
+   Размеры кнопками (карточка товара и быстрая корзина WishSuite)
    -------------------------------------------------- */
 
-.vl-size-buttons {
-	display: flex;
+/* Это <button> внутри формы товара, поэтому на них падают все правила темы
+   для кнопок «в корзину» — красный фон во всю ширину, иногда ещё и с
+   !important. Поэтому селекторы намеренно «утяжелены» повтором класса:
+   так наши значения выигрывают у правил темы вроде
+   .woocommerce div.product form.cart button. Класс vl-size-buttons--bare
+   отдаёт оформление обратно теме — если в ней есть свои стили .size-button. */
+
+.vl-size-buttons.vl-size-buttons {
+	display: flex !important;
 	flex-wrap: wrap;
+	align-items: center;
+	justify-content: flex-start;
 	gap: 8px;
-	margin: 6px 0 2px;
+	width: auto !important;
+	max-width: none;
+	margin: 8px 0 2px !important;
+	padding: 0 !important;
+	border: 0 !important;
+	background: none !important;
+	list-style: none;
 }
 
-.vl-size-buttons .vl-size-button {
-	min-width: 44px;
-	min-height: 38px;
-	padding: 8px 12px;
-	border: 1px solid #bdbdbd;
-	border-radius: 0;
-	background: #fff;
-	color: #333;
-	font: inherit;
-	font-size: 13px;
-	line-height: 1;
-	text-align: center;
-	cursor: pointer;
+.vl-size-buttons.vl-size-buttons:not(.vl-size-buttons--bare) .vl-size-button.vl-size-button,
+.vl-size-buttons.vl-size-buttons:not(.vl-size-buttons--bare) button.vl-size-button.vl-size-button {
+	flex: 0 0 auto !important;
+	display: inline-flex !important;
+	align-items: center !important;
+	justify-content: center !important;
+	box-sizing: border-box !important;
+	width: auto !important;
+	min-width: 48px !important;
+	max-width: none !important;
+	height: auto !important;
+	min-height: 44px !important;
+	margin: 0 !important;
+	padding: 10px 14px !important;
+	border: 1px solid #d5d5d5 !important;
+	border-radius: 0 !important;
+	background: #fff !important;
+	background-image: none !important;
+	box-shadow: none !important;
+	color: #1f1f1f !important;
+	font-family: inherit !important;
+	font-size: 14px !important;
+	font-weight: 400 !important;
+	line-height: 1 !important;
+	letter-spacing: normal !important;
+	text-align: center !important;
+	text-decoration: none !important;
+	text-shadow: none !important;
+	text-transform: none !important;
+	white-space: nowrap !important;
+	cursor: pointer !important;
+	opacity: 1 !important;
 	transition: border-color 0.15s, background-color 0.15s, color 0.15s;
 }
 
-.vl-size-buttons .vl-size-button:hover:not(:disabled) {
-	border-color: #333;
+.vl-size-buttons.vl-size-buttons:not(.vl-size-buttons--bare) .vl-size-button.vl-size-button:hover:not(:disabled),
+.vl-size-buttons.vl-size-buttons:not(.vl-size-buttons--bare) .vl-size-button.vl-size-button:focus-visible {
+	border-color: #1f1f1f !important;
+	background: #fff !important;
+	color: #1f1f1f !important;
 }
 
-.vl-size-buttons .vl-size-button.is-active {
-	border-color: #333;
-	background: #333;
-	color: #fff;
+.vl-size-buttons.vl-size-buttons:not(.vl-size-buttons--bare) .vl-size-button.vl-size-button.is-active,
+.vl-size-buttons.vl-size-buttons:not(.vl-size-buttons--bare) .vl-size-button.vl-size-button.active {
+	border-color: #1f1f1f !important;
+	background: #1f1f1f !important;
+	color: #fff !important;
 }
 
-.vl-size-buttons .vl-size-button.is-disabled,
-.vl-size-buttons .vl-size-button:disabled {
-	color: #bdbdbd;
-	border-color: #ececec;
-	cursor: not-allowed;
+.vl-size-buttons.vl-size-buttons:not(.vl-size-buttons--bare) .vl-size-button.vl-size-button.is-disabled,
+.vl-size-buttons.vl-size-buttons:not(.vl-size-buttons--bare) .vl-size-button.vl-size-button:disabled {
+	border-color: #ececec !important;
+	background: #fff !important;
+	color: #c4c4c4 !important;
+	cursor: not-allowed !important;
 	position: relative;
 	overflow: hidden;
 }
 
 /* Перечёркиваем недоступный размер — так понятнее, чем просто серый. */
-.vl-size-buttons .vl-size-button.is-disabled::after {
+.vl-size-buttons:not(.vl-size-buttons--bare) .vl-size-button.is-disabled::after {
 	content: "";
 	position: absolute;
 	left: -10%;

@@ -587,6 +587,7 @@ class VL_Account_WishSuite {
 			array(
 				'size_buttons' => self::size_buttons_enabled(),
 				'scope'        => self::size_scope(),
+				'size_styles'  => self::size_styles(),
 				'attributes'   => self::size_attributes(),
 				'i18n'         => array(
 					'out_of_stock' => __( 'нет в наличии', 'vl-account' ),
@@ -595,6 +596,22 @@ class VL_Account_WishSuite {
 		);
 
 		wp_enqueue_script( 'vl-wishsuite' );
+	}
+
+	/**
+	 * Чьё оформление у кнопок размеров.
+	 *
+	 * Кнопки стоят внутри формы товара, и правила темы для кнопок покупки
+	 * превращают их в красные полосы во всю ширину. Поэтому по умолчанию
+	 * оформляем сами; режим theme оставлен для тем со своими стилями
+	 * для .size-button.
+	 *
+	 * @return string own | theme
+	 */
+	public static function size_styles() {
+		$mode = VL_Account_Settings::get( 'ws_size_styles', 'own' );
+
+		return 'theme' === $mode ? 'theme' : 'own';
 	}
 
 	/**

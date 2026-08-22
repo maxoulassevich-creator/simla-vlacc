@@ -236,6 +236,15 @@ namespace {
 	check( 'пусто — все атрибуты', array() === VL_Account_WishSuite::size_attributes() );
 	VL_Account_Settings::update( array( 'ws_size_attributes' => 'pa_razmer, pa_size' ) );
 	check( 'список разбирается', array( 'pa_razmer', 'pa_size' ) === VL_Account_WishSuite::size_attributes(), print_r( VL_Account_WishSuite::size_attributes(), true ) );
+
+	echo "\n== 11. Оформление кнопок размеров ==\n";
+	check( 'по умолчанию оформляем сами', 'own' === VL_Account_WishSuite::size_styles() );
+	VL_Account_Settings::update( array( 'ws_size_styles' => 'theme' ) );
+	check( 'можно отдать теме', 'theme' === VL_Account_WishSuite::size_styles() );
+	VL_Account_Settings::update( array( 'ws_size_styles' => 'ерунда' ) );
+	check( 'мусор в настройке — оформляем сами', 'own' === VL_Account_WishSuite::size_styles() );
+	VL_Account_Settings::update( array( 'ws_size_styles' => 'own' ) );
+
 	echo "\n== ИТОГО: $pass ок, $fail ошибок ==\n";
 	exit( $fail > 0 ? 1 : 0 );
 }

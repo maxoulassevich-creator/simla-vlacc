@@ -225,36 +225,43 @@ function vlacc_redirect_url( $fallback = '' ) {
 /**
  * Иконка из набора плагина.
  *
+ * Иконки линейные: рисуются контуром, а не заливкой. Залитые силуэты рядом
+ * с тонкими иконками темы (поиск, сердечко, корзина) смотрятся жирными пятнами.
+ *
  * @param string $name Имя иконки.
  * @param int    $size Размер.
  * @return string SVG-разметка.
  */
 function vlacc_icon( $name, $size = 20 ) {
 	$icons = array(
-		'user'     => '<path d="M12 12a5 5 0 100-10 5 5 0 000 10zm0 2c-4.4 0-8 2.4-8 5.5V22h16v-2.5c0-3.1-3.6-5.5-8-5.5z"/>',
-		'logout'   => '<path d="M14 3h5a2 2 0 012 2v14a2 2 0 01-2 2h-5v-2h5V5h-5V3zM9.7 7.3l1.4 1.4L8.8 11H16v2H8.8l2.3 2.3-1.4 1.4L5 12l4.7-4.7z"/>',
-		'orders'   => '<path d="M6 2h9l5 5v15H6a2 2 0 01-2-2V4a2 2 0 012-2zm8 1.5V8h4.5L14 3.5zM8 12h8v2H8v-2zm0 4h8v2H8v-2z"/>',
-		'heart'    => '<path d="M12 21s-8-4.9-8-10.3A4.7 4.7 0 0112 7a4.7 4.7 0 018 3.7C20 16.1 12 21 12 21z"/>',
-		'gift'     => '<path d="M20 8h-2.2a3 3 0 00-4.3-4A3 3 0 0012 5.2 3 3 0 0010.5 4a3 3 0 00-4.3 4H4v4h16V8zm-9 6H4v7h7v-7zm2 0v7h7v-7h-7z"/>',
-		'star'     => '<path d="M12 2l3 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.9 21l1.2-6.8-5-4.9 6.9-1L12 2z"/>',
-		'bell'     => '<path d="M12 22a2.5 2.5 0 002.5-2.5h-5A2.5 2.5 0 0012 22zm7-5.5V11a7 7 0 10-14 0v5.5L3 18v1h18v-1l-2-1.5z"/>',
-		'settings' => '<path d="M12 8a4 4 0 100 8 4 4 0 000-8zm9 4l2 1.6-1.9 3.3-2.4-.8a7.8 7.8 0 01-1.7 1l-.4 2.5h-3.8l-.4-2.5a7.8 7.8 0 01-1.7-1l-2.4.8L1 13.6 3 12l-2-1.6 1.9-3.3 2.4.8c.5-.4 1.1-.7 1.7-1L7.4 4h3.8l.4 2.5c.6.3 1.2.6 1.7 1l2.4-.8L23 10.4 21 12z"/>',
-		'lock'     => '<path d="M17 9V7a5 5 0 00-10 0v2H5v12h14V9h-2zM9 7a3 3 0 016 0v2H9V7z"/>',
-		'copy'     => '<path d="M16 1H4a2 2 0 00-2 2v14h2V3h12V1zm3 4H8a2 2 0 00-2 2v14a2 2 0 002 2h11a2 2 0 002-2V7a2 2 0 00-2-2z"/>',
-		'check'    => '<path d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"/>',
-		'phone'    => '<path d="M6.6 10.8a15 15 0 006.6 6.6l2.2-2.2a1 1 0 011-.2c1.1.4 2.3.6 3.6.6a1 1 0 011 1V20a1 1 0 01-1 1A17 17 0 013 4a1 1 0 011-1h3.5a1 1 0 011 1c0 1.3.2 2.5.6 3.6a1 1 0 01-.2 1l-2.3 2.2z"/>',
-		'telegram' => '<path d="M21.9 4.3l-3 14.2c-.2 1-.8 1.3-1.7.8l-4.6-3.4-2.2 2.2c-.3.3-.5.5-1 .5l.3-4.7L18.3 6c.4-.3-.1-.5-.6-.2L7.2 12.4l-4.5-1.4c-1-.3-1-1 .2-1.5l17.6-6.8c.8-.3 1.5.2 1.4 1.6z"/>',
+		'user'     => '<path d="M12 12.2a3.7 3.7 0 1 0 0-7.4 3.7 3.7 0 0 0 0 7.4Z"/><path d="M4.8 20.2c0-3.4 3.2-5.6 7.2-5.6s7.2 2.2 7.2 5.6"/>',
+		'logout'   => '<path d="M14.5 3.8h3.7A1.8 1.8 0 0 1 20 5.6v12.8a1.8 1.8 0 0 1-1.8 1.8h-3.7"/><path d="m10.4 8.2 3.8 3.8-3.8 3.8"/><path d="M14.2 12H4"/>',
+		'orders'   => '<path d="M13.8 3.8H7.6A1.8 1.8 0 0 0 5.8 5.6v12.8a1.8 1.8 0 0 0 1.8 1.8h8.8a1.8 1.8 0 0 0 1.8-1.8V7.8l-4.4-4Z"/><path d="M13.6 3.9v4h4.4"/><path d="M9 12.6h6"/><path d="M9 16h6"/>',
+		'heart'    => '<path d="M12 20.3 4.7 13a4.4 4.4 0 0 1 6.2-6.2l1.1 1.1 1.1-1.1A4.4 4.4 0 0 1 19.3 13L12 20.3Z"/>',
+		'gift'     => '<path d="M4.4 11.4h15.2v7.9a1.4 1.4 0 0 1-1.4 1.4H5.8a1.4 1.4 0 0 1-1.4-1.4v-7.9Z"/><path d="M3.2 8.1h17.6v3.3H3.2z"/><path d="M12 8.1v12.6"/><path d="M12 8.1H8.7a2.2 2.2 0 1 1 0-4.4c2.1 0 3.3 4.4 3.3 4.4Z"/><path d="M12 8.1h3.3a2.2 2.2 0 1 0 0-4.4c-2.1 0-3.3 4.4-3.3 4.4Z"/>',
+		'star'     => '<path d="m12 3.8 2.6 5.3 5.8.8-4.2 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.2-4.1 5.8-.8L12 3.8Z"/>',
+		'bell'     => '<path d="M18 16.6V11a6 6 0 0 0-12 0v5.6l-1.6 2h15.2l-1.6-2Z"/><path d="M10 20.9a2.3 2.3 0 0 0 4 0"/>',
+		'settings' => '<path d="M4 7.4h8.4"/><path d="M17.6 7.4H20"/><path d="M4 16.6h2.4"/><path d="M11.6 16.6H20"/><path d="M15 9.6a2.2 2.2 0 1 0 0-4.4 2.2 2.2 0 0 0 0 4.4Z"/><path d="M9 18.8a2.2 2.2 0 1 0 0-4.4 2.2 2.2 0 0 0 0 4.4Z"/>',
+		'lock'     => '<path d="M6.6 10.4h10.8a1.2 1.2 0 0 1 1.2 1.2v7.6a1.2 1.2 0 0 1-1.2 1.2H6.6a1.2 1.2 0 0 1-1.2-1.2v-7.6a1.2 1.2 0 0 1 1.2-1.2Z"/><path d="M8.6 10.4V7.7a3.4 3.4 0 0 1 6.8 0v2.7"/>',
+		'copy'     => '<path d="M9.8 9.2h8.6a1.2 1.2 0 0 1 1.2 1.2v8.6a1.2 1.2 0 0 1-1.2 1.2H9.8a1.2 1.2 0 0 1-1.2-1.2v-8.6a1.2 1.2 0 0 1 1.2-1.2Z"/><path d="M5.6 15.4a1.6 1.6 0 0 1-1.6-1.6V5.4a1.6 1.6 0 0 1 1.6-1.6h8.4a1.6 1.6 0 0 1 1.6 1.6"/>',
+		'check'    => '<path d="m4.8 12.6 4.8 4.8L19.2 6.8"/>',
+		'phone'    => '<path d="M8.2 4.2H5.6a1.5 1.5 0 0 0-1.5 1.6c.4 6.9 5.2 12.8 12.1 14a1.5 1.5 0 0 0 1.7-1.5v-2.6l-3.9-1.1-1.5 1.9a13.6 13.6 0 0 1-5.3-6.1l1.9-1.4-.9-4.8Z"/>',
+		'telegram' => '<path d="M21.2 4.4 2.9 11.2l5 1.8 1.8 5.7 2.8-3.2 4.6 3.4 4.1-14.5Z"/><path d="m7.9 13 12.4-8.4-8.6 10.6"/>',
 	);
 
 	if ( ! isset( $icons[ $name ] ) ) {
 		return '';
 	}
 
+	// Толщину линии можно поменять фильтром — темы бывают и потоньше, и потолще.
+	$stroke = (float) apply_filters( 'vlacc_icon_stroke', 1.4, $name, $size );
+
 	return sprintf(
-		'<svg class="vl-icon vl-icon--%1$s" width="%2$d" height="%2$d" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false">%3$s</svg>',
+		'<svg class="vl-icon vl-icon--%1$s" width="%2$d" height="%2$d" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="%4$s" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">%3$s</svg>',
 		esc_attr( $name ),
 		(int) $size,
-		$icons[ $name ]
+		$icons[ $name ],
+		esc_attr( (string) $stroke )
 	);
 }
 
@@ -267,18 +274,26 @@ function vlacc_allowed_html() {
 	$allowed = wp_kses_allowed_html( 'post' );
 
 	$allowed['svg']  = array(
-		'class'       => true,
-		'width'       => true,
-		'height'      => true,
-		'viewbox'     => true,
-		'fill'        => true,
-		'aria-hidden' => true,
-		'focusable'   => true,
-		'xmlns'       => true,
+		'class'            => true,
+		'width'            => true,
+		'height'           => true,
+		'viewbox'          => true,
+		'fill'             => true,
+		'stroke'           => true,
+		'stroke-width'     => true,
+		'stroke-linecap'   => true,
+		'stroke-linejoin'  => true,
+		'aria-hidden'      => true,
+		'focusable'        => true,
+		'xmlns'            => true,
 	);
 	$allowed['path'] = array(
-		'd'    => true,
-		'fill' => true,
+		'd'                => true,
+		'fill'             => true,
+		'stroke'           => true,
+		'stroke-width'     => true,
+		'stroke-linecap'   => true,
+		'stroke-linejoin'  => true,
 	);
 
 	return $allowed;

@@ -42,6 +42,17 @@
 		return false !== cfg.size_buttons;
 	}
 
+	/**
+	 * Оформление кнопок: наше или темы.
+	 *
+	 * Кнопки размеров живут внутри формы товара, и правила темы для кнопок
+	 * покупки красят их в красный во всю ширину. По умолчанию оформляем сами;
+	 * режим theme нужен, только если в теме есть свои стили для .size-button.
+	 */
+	function themeStyles() {
+		return 'theme' === cfg.size_styles;
+	}
+
 	function isAllowed( select ) {
 		var list = cfg.attributes || [];
 
@@ -125,6 +136,16 @@
 		} else if ( box.className.indexOf( 'vl-size-buttons' ) === -1 ) {
 			box.className += ' vl-size-buttons';
 		}
+
+		box.classList.toggle( 'vl-size-buttons--bare', themeStyles() );
+
+		// Инлайновый скрипт темы кладёт кнопки прямо в ячейку, без контейнера.
+		// Если он ещё жив, убираем его кнопки — иначе размеров будет два ряда.
+		Array.prototype.forEach.call( scope.querySelectorAll( '.size-button' ), function ( stray ) {
+			if ( ! box.contains( stray ) && stray.parentNode ) {
+				stray.parentNode.removeChild( stray );
+			}
+		} );
 
 		return box;
 	}

@@ -146,6 +146,7 @@ class VL_Account_Settings {
 			'ws_hide_our_button'   => 1,        // Не выводить наше сердечко, если есть сердечко WishSuite.
 			'ws_size_buttons'      => 1,        // Размеры кнопками вместо выпадающего списка.
 			'ws_size_scope'        => 'all',    // all | wishsuite — где заменять список кнопками.
+			'ws_size_styles'       => 'own',    // own | theme — чьё оформление у кнопок размеров.
 			'ws_size_attributes'   => 'pa_razmer', // Коды атрибутов через запятую; пусто — все.
 
 			// Подписка на поступление товара (Back In Stock Notifier).
