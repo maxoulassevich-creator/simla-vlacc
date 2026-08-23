@@ -34,6 +34,8 @@ class VL_Account_User {
 			return false;
 		}
 
+		$found = false;
+
 		// 1. Наше нормализованное поле — самый быстрый путь.
 		$users = get_users(
 			array(
@@ -45,11 +47,11 @@ class VL_Account_User {
 		);
 
 		if ( ! empty( $users[0] ) ) {
-			return $users[0];
+			$found = $users[0];
 		}
 
 		// 2. Телефон из биллинга WooCommerce в любом формате записи.
-		$variants = VL_Account_Phone::variants( $normalized );
+		$variants = $found ? array() : VL_Account_Phone::variants( $normalized );
 
 		if ( $variants ) {
 			$meta_query = array( 'relation' => 'OR' );
@@ -73,11 +75,15 @@ class VL_Account_User {
 			if ( ! empty( $users[0] ) ) {
 				// Подтягиваем номер в нормализованное поле, чтобы дальше искать быстро.
 				update_user_meta( $users[0]->ID, self::META_PHONE, $normalized );
-				return $users[0];
+				$found = $users[0];
 			}
 		}
 
-		return false;
+		// Поиск достраивается снаружи: заказы сайта и база покупателей CRM
+		// знают телефон даже тогда, когда в профиле его нет (VL_Account_Identity).
+		$found = apply_filters( 'vlacc_user_by_phone', $found, $normalized );
+
+		return $found instanceof WP_User ? $found : false;
 	}
 
 	/**

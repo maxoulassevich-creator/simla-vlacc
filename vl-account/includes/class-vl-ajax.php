@@ -191,6 +191,10 @@ class VL_Account_Ajax {
 			);
 		}
 
+		// Код подтверждён — можно искать старый аккаунт этого человека
+		// (по заказам сайта и базе покупателей CRM) и объединять дубли.
+		$user = VL_Account_Identity::prepare_login( $user, $phone );
+
 		if ( $user ) {
 			update_user_meta( $user->ID, VL_Account_User::META_VERIFIED, current_time( 'mysql' ) );
 			VL_Account_Auth::login_user( $user->ID, true );
@@ -228,6 +232,10 @@ class VL_Account_Ajax {
 		if ( is_wp_error( $user_id ) ) {
 			wp_send_json_error( array( 'message' => $user_id->get_error_message() ) );
 		}
+
+		// Новый аккаунт сразу наполняем тем, что о покупателе знает CRM,
+		// и привязываем его прежние гостевые заказы.
+		VL_Account_Identity::after_register( $user_id, $phone );
 
 		VL_Account_Auth::login_user( $user_id, true );
 

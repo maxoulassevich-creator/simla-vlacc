@@ -945,6 +945,71 @@ class VL_Account_Admin {
 			);
 			?>
 		</table>
+
+		<h2><?php esc_html_e( 'Сопоставление аккаунтов', 'vl-account' ); ?></h2>
+
+		<p class="description" style="max-width:900px">
+			<?php
+			printf(
+				/* translators: %s — ссылка на экран отчёта. */
+				wp_kses_post( __( 'Старые аккаунты покупателей заводились почтой и паролем, телефона в них нет — при входе по SMS такой человек получал второй, пустой кабинет. Здесь телефон доводится до старого аккаунта по заказам сайта и по базе покупателей CRM. Отчёт и журнал: %s.', 'vl-account' ) ),
+				'<a href="' . esc_url( admin_url( 'admin.php?page=vl-account-identity' ) ) . '">' . esc_html__( 'Сопоставление аккаунтов', 'vl-account' ) . '</a>'
+			);
+			?>
+		</p>
+
+		<table class="form-table" role="presentation">
+			<?php
+			$this->checkbox(
+				'identity_orders',
+				$s,
+				__( 'Искать аккаунт по заказам', 'vl-account' ),
+				__( 'Телефон покупателя почти всегда есть в его заказе, даже если в профиле пусто. Работает и без CRM.', 'vl-account' )
+			);
+			$this->checkbox(
+				'identity_crm',
+				$s,
+				__( 'Искать покупателя в CRM', 'vl-account' ),
+				__( 'В CRM у покупателя хранится связка «телефон — почта — ID аккаунта на сайте» (externalId), по ней аккаунт находится точно.', 'vl-account' )
+			);
+			$this->checkbox(
+				'crm_directory',
+				$s,
+				__( 'Держать снимок базы CRM', 'vl-account' ),
+				__( 'Сопоставление идёт по локальной копии базы покупателей — без запросов к CRM в момент входа. Выгружается пачками в фоне.', 'vl-account' )
+			);
+			$this->checkbox(
+				'crm_lookup_live',
+				$s,
+				__( 'Спрашивать CRM для незнакомых номеров', 'vl-account' ),
+				__( 'Если номера нет в снимке, делается один запрос к CRM. Ответ сразу попадает в снимок.', 'vl-account' )
+			);
+			$this->checkbox(
+				'crm_sync_daily',
+				$s,
+				__( 'Обновлять снимок раз в сутки', 'vl-account' ),
+				__( 'Ночью снимок перечитывается заново — новые покупатели из CRM попадают в сопоставление сами.', 'vl-account' )
+			);
+			$this->checkbox(
+				'identity_merge',
+				$s,
+				__( 'Объединять дубли автоматически', 'vl-account' ),
+				__( 'Пустой аккаунт, созданный входом по SMS, сливается со старым: заказы, избранное, подписки, промокоды и баллы переезжают. Два «живых» аккаунта автоматически не объединяются — они уходят в отчёт.', 'vl-account' )
+			);
+			$this->checkbox(
+				'identity_delete_merged',
+				$s,
+				__( 'Удалять пустой аккаунт после слияния', 'vl-account' ),
+				__( 'Если выключить, аккаунт останется, но будет помечен как объединённый и в него нельзя будет войти по этому номеру.', 'vl-account' )
+			);
+			$this->checkbox(
+				'identity_trust_crm_email',
+				$s,
+				__( 'Почта из CRM считается подтверждённой', 'vl-account' ),
+				__( 'Подтверждение по ссылке нужно, когда адрес вводит сам посетитель. Адрес, пришедший из CRM по подтверждённому кодом телефону, подтверждать не о чем.', 'vl-account' )
+			);
+			?>
+		</table>
 		<?php
 	}
 
@@ -1503,7 +1568,7 @@ class VL_Account_Admin {
 			'forms'   => array( 'passwordless', 'auto_register', 'auth_marketing_box', 'show_telegram', 'gate_cart', 'consent_privacy', 'consent_marketing' ),
 			'account' => array( 'wishlist_on_product', 'profile_address', 'profile_shipping', 'ws_enabled', 'ws_two_way', 'ws_merge_guest', 'ws_hide_our_button', 'ws_size_buttons', 'sn_enabled', 'sn_show_sent', 'sn_match_email' ),
 			'orders'  => array( 'auto_create_account', 'attach_guest_orders', 'match_by_phone', 'email_on_register', 'email_on_autocreate', 'email_confirm', 'carts_enabled', 'autofill', 'autofill_fix_forms' ),
-			'crm'     => array( 'crm_enabled', 'crm_sync_customer', 'crm_sync_consents', 'crm_skip_tech_email', 'crm_order_priority', 'crm_loyalty_ui', 'crm_hide_wc_loyalty', 'crm_credit_top', 'crm_promo_combine', 'crm_promo_hide_loyalty', 'crm_fix_coupon_email' ),
+			'crm'     => array( 'crm_enabled', 'crm_sync_customer', 'crm_sync_consents', 'crm_skip_tech_email', 'crm_order_priority', 'crm_loyalty_ui', 'crm_hide_wc_loyalty', 'crm_credit_top', 'crm_promo_combine', 'crm_promo_hide_loyalty', 'crm_fix_coupon_email', 'identity_orders', 'identity_crm', 'crm_directory', 'crm_lookup_live', 'crm_sync_daily', 'identity_merge', 'identity_delete_merged', 'identity_trust_crm_email' ),
 			'design'  => array(),
 		);
 

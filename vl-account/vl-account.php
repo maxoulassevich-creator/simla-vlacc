@@ -2,8 +2,8 @@
 /**
  * Plugin Name: VL Account — вход, регистрация по SMS и личный кабинет
  * Plugin URI:  https://example.com/
- * Description: Вход и регистрация по номеру телефона через SMS.RU (код в SMS или звонком), восстановление пароля, личный кабинет WooCommerce (заказы, избранное, промокод, бонусы, согласия), автосоздание кабинета при заказе, привязка гостевых заказов, адреса доставки и оплаты в кабинете, отчёт по брошенным корзинам, автозаполнение форм. Интеграция с плагинами Simla.com (RetailCRM), WishSuite (избранное) и Back In Stock Notifier (подписка на размер). Всё выводится шорткодами.
- * Version:     1.6.1
+ * Description: Вход и регистрация по номеру телефона через SMS.RU (код в SMS или звонком), восстановление пароля, личный кабинет WooCommerce (заказы, избранное, промокод, бонусы, согласия), автосоздание кабинета при заказе, привязка гостевых заказов, адреса доставки и оплаты в кабинете, объединение старых аккаунтов с входом по SMS, отчёт по брошенным корзинам, автозаполнение форм. Интеграция с плагинами Simla.com (RetailCRM), WishSuite (избранное) и Back In Stock Notifier (подписка на размер). Всё выводится шорткодами.
+ * Version:     1.7.0
  * Requires PHP: 7.4
  * Requires at least: 5.8
  * Author:      —
@@ -17,7 +17,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'VLACC_VERSION', '1.6.1' );
+define( 'VLACC_VERSION', '1.7.0' );
 define( 'VLACC_FILE', __FILE__ );
 define( 'VLACC_PATH', plugin_dir_path( __FILE__ ) );
 define( 'VLACC_URL', plugin_dir_url( __FILE__ ) );
@@ -48,8 +48,10 @@ require_once VLACC_PATH . 'includes/class-vl-gate.php';
 require_once VLACC_PATH . 'includes/class-vl-carts.php';
 require_once VLACC_PATH . 'includes/class-vl-autofill.php';
 require_once VLACC_PATH . 'includes/class-vl-address.php';
+require_once VLACC_PATH . 'includes/class-vl-identity.php';
 require_once VLACC_PATH . 'includes/class-vl-shortcodes.php';
 require_once VLACC_PATH . 'includes/class-vl-admin.php';
+require_once VLACC_PATH . 'includes/class-vl-identity-admin.php';
 
 // Интеграция с плагином «Simla.com» (woo-retailcrm).
 require_once VLACC_PATH . 'includes/integrations/class-vl-retailcrm.php';
@@ -57,6 +59,7 @@ require_once VLACC_PATH . 'includes/integrations/class-vl-retailcrm-customer.php
 require_once VLACC_PATH . 'includes/integrations/class-vl-retailcrm-loyalty.php';
 require_once VLACC_PATH . 'includes/integrations/class-vl-retailcrm-promo.php';
 require_once VLACC_PATH . 'includes/integrations/class-vl-retailcrm-cart.php';
+require_once VLACC_PATH . 'includes/integrations/class-vl-retailcrm-directory.php';
 
 // Интеграция с плагином избранного «WishSuite».
 require_once VLACC_PATH . 'includes/integrations/class-vl-wishsuite.php';
@@ -120,6 +123,7 @@ final class VL_Account_Plugin {
 			VL_Account_RetailCRM_Loyalty::instance();
 			VL_Account_RetailCRM_Promo::instance();
 			VL_Account_RetailCRM_Cart::instance();
+			VL_Account_RetailCRM_Directory::instance();
 		}
 
 		// Избранное WishSuite и кнопки размеров: классы сами проверяют,
@@ -143,9 +147,11 @@ final class VL_Account_Plugin {
 		VL_Account_Carts::instance();
 		VL_Account_Autofill::instance();
 		VL_Account_Address::instance();
+		VL_Account_Identity::instance();
 
 		if ( is_admin() ) {
 			VL_Account_Admin::instance();
+			VL_Account_Identity_Admin::instance();
 		}
 	}
 
@@ -251,6 +257,14 @@ function vlacc_activate() {
 	if ( class_exists( 'VL_Account_Carts' ) ) {
 		VL_Account_Carts::install();
 	}
+
+	if ( class_exists( 'VL_Account_Identity' ) ) {
+		VL_Account_Identity::install();
+	}
+
+	if ( class_exists( 'VL_Account_RetailCRM_Directory' ) ) {
+		VL_Account_RetailCRM_Directory::install();
+	}
 	set_transient( 'vlacc_activated', 1, 60 );
 }
 register_activation_hook( __FILE__, 'vlacc_activate' );
@@ -261,5 +275,7 @@ register_activation_hook( __FILE__, 'vlacc_activate' );
 function vlacc_deactivate() {
 	flush_rewrite_rules();
 	wp_clear_scheduled_hook( 'vlacc_carts_cleanup' );
+	wp_clear_scheduled_hook( 'vlacc_crm_sync_batch' );
+	wp_clear_scheduled_hook( 'vlacc_crm_sync_daily' );
 }
 register_deactivation_hook( __FILE__, 'vlacc_deactivate' );

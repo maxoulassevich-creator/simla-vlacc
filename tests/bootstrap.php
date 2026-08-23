@@ -9,6 +9,7 @@ define( 'HOUR_IN_SECONDS', 3600 );
 define( 'MINUTE_IN_SECONDS', 60 );
 define( 'COOKIEPATH', '/' );
 define( 'COOKIE_DOMAIN', '' );
+define( 'ARRAY_A', 'ARRAY_A' );
 
 $GLOBALS['options']    = array();
 $GLOBALS['transients'] = array();
@@ -50,6 +51,59 @@ function get_user_by( $f, $v ) {
 	}
 	return false;
 }
+function delete_user_meta( $id, $key, $value = '' ) { unset( $GLOBALS['usermeta'][ $id ][ $key ] ); return true; }
+
+/**
+ * Заглушка get_users: поддерживает выборку по meta_key/meta_value и fields.
+ * Пользователи объявляются в $GLOBALS['users'].
+ */
+function get_users( $args = array() ) {
+	$result = array();
+	$number = isset( $args['number'] ) ? (int) $args['number'] : 0;
+
+	foreach ( $GLOBALS['users'] as $user ) {
+		if ( isset( $args['meta_key'] ) ) {
+			$value = $GLOBALS['usermeta'][ $user->ID ][ $args['meta_key'] ] ?? '';
+
+			if ( (string) $value !== (string) ( $args['meta_value'] ?? '' ) ) {
+				continue;
+			}
+		}
+
+		$result[] = ( isset( $args['fields'] ) && 'ID' === $args['fields'] ) ? $user->ID : $user;
+
+		if ( $number && count( $result ) >= $number ) {
+			break;
+		}
+	}
+
+	return $result;
+}
+function user_can( $user, $cap, ...$args ) {
+	$id = is_object( $user ) ? $user->ID : (int) $user;
+
+	return in_array( $cap, (array) ( $GLOBALS['caps'][ $id ] ?? array() ), true );
+}
+function wp_update_user( $data ) {
+	$id   = (int) ( $data['ID'] ?? 0 );
+	$user = $GLOBALS['users'][ $id ] ?? null;
+
+	if ( ! $user ) { return 0; }
+
+	foreach ( $data as $key => $value ) { if ( 'ID' !== $key ) { $user->$key = $value; } }
+
+	return $id;
+}
+function wp_delete_user( $id, $reassign = 0 ) { unset( $GLOBALS['users'][ (int) $id ] ); $GLOBALS['deleted_users'][] = array( (int) $id, (int) $reassign ); return true; }
+function email_exists( $email ) {
+	foreach ( $GLOBALS['users'] as $user ) {
+		if ( isset( $user->user_email ) && strtolower( $user->user_email ) === strtolower( (string) $email ) ) { return $user->ID; }
+	}
+	return false;
+}
+$GLOBALS['caps']          = array();
+$GLOBALS['deleted_users'] = array();
+
 function get_current_user_id() { return ! empty( $GLOBALS['logged_in'] ) ? (int) ( $GLOBALS['current_user_id'] ?? 1 ) : 0; }
 $GLOBALS['logged_in'] = true;
 function is_user_logged_in() { return ! empty( $GLOBALS['logged_in'] ); }
@@ -77,6 +131,8 @@ function wp_list_pluck( $list, $field ) {
 }
 function wp_next_scheduled( $hook, $args = array() ) { return false; }
 function wp_schedule_event( $ts, $recurrence, $hook, $args = array() ) { return true; }
+function wp_schedule_single_event( $ts, $hook, $args = array() ) { $GLOBALS['scheduled'][] = array( $ts, $hook ); return true; }
+$GLOBALS['scheduled'] = array();
 function wp_clear_scheduled_hook( $hook, $args = array() ) { return 0; }
 function wp_generate_password( $length = 12, $special = true, $extra = false ) { return substr( str_repeat( 'abcdef0123456789', 8 ), 0, $length ); }
 function is_ssl() { return true; }
@@ -92,7 +148,12 @@ function get_permalink( $id ) { return 'https://example.test/?p=' . $id; }
 function get_post_status( $id ) { return 'publish'; }
 $GLOBALS['products'] = array();
 function wc_get_product( $id ) { return $GLOBALS['products'][ (int) $id ] ?? false; }
-function wc_get_order( $id ) { return false; }
+function wc_get_order( $id ) {
+	foreach ( (array) ( $GLOBALS['orders'] ?? array() ) as $order ) {
+		if ( is_object( $order ) && method_exists( $order, 'get_id' ) && (int) $order->get_id() === (int) $id ) { return $order; }
+	}
+	return false;
+}
 function is_admin() { return false; }
 function current_user_can( $c, $o = null ) { return false; }
 function locate_template( $t ) { return ''; }
