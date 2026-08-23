@@ -206,10 +206,15 @@ class VL_Account_SmsRu {
 			}
 
 			if ( in_array( $status_code, array( 100, 101, 102, 103 ), true ) ) {
+				// Имя отправителя и id сообщения пишем в лог: по ним запись
+				// сверяется с историей отправки в личном кабинете SMS.RU —
+				// сразу видно, наше имя ушло или шлюз подставил своё.
 				vlacc_log(
 					'SMS отправлено',
 					array(
 						'phone'   => vlacc_mask_phone( $phone ),
+						'from'    => isset( $params['from'] ) ? $params['from'] : '(общее имя SMS.RU)',
+						'sms_id'  => isset( $data['sms'][ $phone ]['sms_id'] ) ? $data['sms'][ $phone ]['sms_id'] : null,
 						'balance' => isset( $data['balance'] ) ? $data['balance'] : null,
 					)
 				);
@@ -228,6 +233,7 @@ class VL_Account_SmsRu {
 			'Ошибка отправки SMS',
 			array(
 				'phone'  => vlacc_mask_phone( $phone ),
+				'from'   => isset( $params['from'] ) ? $params['from'] : '(общее имя SMS.RU)',
 				'status' => $status_code,
 				'text'   => self::status_message( $status_code ),
 			)
@@ -325,20 +331,109 @@ class VL_Account_SmsRu {
 	/**
 	 * Список согласованных имён отправителей.
 	 *
+	 * Ответ кэшируется на пять минут: список меняется редко, а страница
+	 * диагностики иначе дёргает API при каждом обновлении.
+	 *
+	 * @param bool $force Не брать из кэша.
 	 * @return array|WP_Error
 	 */
-	public static function senders() {
+	public static function senders( $force = false ) {
+		$api_id = trim( (string) VL_Account_Settings::get( 'api_id', '' ) );
+
+		if ( '' === $api_id ) {
+			return new WP_Error( 'vlacc_no_api_id', __( 'Не указан api_id SMS.RU в настройках плагина.', 'vl-account' ) );
+		}
+
+		// Ключ кэша завязан на api_id: сменили аккаунт — список перечитается.
+		$key    = 'vlacc_senders_' . md5( $api_id );
+		$cached = $force ? false : get_transient( $key );
+
+		if ( is_array( $cached ) ) {
+			return $cached;
+		}
+
 		$data = self::request( 'my/senders' );
 
 		if ( is_wp_error( $data ) ) {
 			return $data;
 		}
 
-		if ( isset( $data['status'] ) && 'OK' === $data['status'] && ! empty( $data['senders'] ) ) {
-			return (array) $data['senders'];
+		if ( ! isset( $data['status'] ) || 'OK' !== $data['status'] ) {
+			$status_code = isset( $data['status_code'] ) ? (int) $data['status_code'] : 0;
+
+			return new WP_Error( 'vlacc_senders', self::status_message( $status_code ) );
 		}
 
-		return array();
+		$senders = array();
+
+		// SMS.RU отдаёт список строк, но встречается и массив объектов.
+		foreach ( (array) ( isset( $data['senders'] ) ? $data['senders'] : array() ) as $sender ) {
+			if ( is_string( $sender ) ) {
+				$senders[] = trim( $sender );
+			} elseif ( is_array( $sender ) && isset( $sender['name'] ) ) {
+				$senders[] = trim( (string) $sender['name'] );
+			}
+		}
+
+		$senders = array_values( array_filter( $senders ) );
+
+		set_transient( $key, $senders, 5 * MINUTE_IN_SECONDS );
+
+		return $senders;
+	}
+
+	/**
+	 * Состояние имени отправителя: согласовано ли то, что стоит в настройках.
+	 *
+	 * Главный вопрос при жалобе «приходит чужое имя»: наш ли ключ, знает ли
+	 * аккаунт SMS.RU это имя. Если ключ от другого аккаунта, имени в списке
+	 * не будет — это и есть ответ.
+	 *
+	 * @return array {
+	 *     @type string      $from     Имя из настроек.
+	 *     @type bool|null   $approved true|false, null — список получить не удалось.
+	 *     @type array       $list     Согласованные имена аккаунта.
+	 *     @type string      $error    Текст ошибки, если список не пришёл.
+	 * }
+	 */
+	public static function sender_status() {
+		$from   = trim( (string) VL_Account_Settings::get( 'sms_from', '' ) );
+		$result = array(
+			'from'     => $from,
+			'approved' => null,
+			'list'     => array(),
+			'error'    => '',
+		);
+
+		if ( '' === $from ) {
+			return $result;
+		}
+
+		$senders = self::senders();
+
+		if ( is_wp_error( $senders ) ) {
+			$result['error'] = $senders->get_error_message();
+
+			return $result;
+		}
+
+		$result['list'] = $senders;
+
+		// Регистр SMS.RU не различает, а вот лишние пробелы и кириллические
+		// буквы-двойники в имени — самая частая причина «имя не то».
+		$needle = mb_strtolower( $from );
+
+		foreach ( $senders as $sender ) {
+			if ( mb_strtolower( $sender ) === $needle ) {
+				$result['approved'] = true;
+
+				return $result;
+			}
+		}
+
+		$result['approved'] = false;
+
+		return $result;
 	}
 
 	/**

@@ -1222,20 +1222,57 @@ class VL_Account_Admin {
 			'text'   => $text,
 		);
 
-		// Имя отправителя.
-		$from = trim( (string) VL_Account_Settings::get( 'sms_from', '' ) );
-
+		// Имя отправителя: сверяем настройку со списком согласованных имён
+		// того аккаунта, которому принадлежит ключ. Если имени там нет —
+		// ключ от другого аккаунта, и SMS уходят с чужим именем.
 		if ( 'sms' === VL_Account_Settings::get( 'delivery_method', 'sms' ) ) {
+			$sender = $api_ok
+				? VL_Account_SmsRu::sender_status()
+				: array(
+					'from'     => trim( (string) VL_Account_Settings::get( 'sms_from', '' ) ),
+					'approved' => null,
+					'list'     => array(),
+					'error'    => '',
+				);
+
+			$from = $sender['from'];
+			$list = $sender['list']
+				? '<code>' . implode( '</code>, <code>', array_map( 'esc_html', $sender['list'] ) ) . '</code>'
+				: '<em>' . esc_html__( 'список пуст', 'vl-account' ) . '</em>';
+
+			if ( '' === $from ) {
+				$status = 'warn';
+				$text   = __( 'Не задано — сообщения уйдут от общего имени SMS.RU. Это допустимо, но с фирменным именем доставляемость выше.', 'vl-account' );
+			} elseif ( true === $sender['approved'] ) {
+				$status = 'ok';
+				$text   = sprintf(
+					/* translators: 1: имя отправителя, 2: список согласованных имён. */
+					__( 'Имя «%1$s» согласовано в этом аккаунте SMS.RU и уходит в каждом запросе. Согласованные имена ключа: %2$s. Если абоненту всё равно приходит другое имя — подмена происходит на стороне SMS.RU или оператора: найдите сообщение в «Отчётах» SMS.RU по id из лога плагина и спросите поддержку, почему заменён отправитель.', 'vl-account' ),
+					esc_html( $from ),
+					$list
+				);
+			} elseif ( false === $sender['approved'] ) {
+				$status = 'error';
+				$text   = sprintf(
+					/* translators: 1: имя отправителя, 2: список согласованных имён. */
+					__( 'Имя «%1$s» не найдено среди согласованных имён того аккаунта, которому принадлежит указанный api_id. Согласованные имена этого ключа: %2$s. Чаще всего это значит, что ключ взят из другого аккаунта или субаккаунта SMS.RU, либо в имени опечатка (лишний пробел, кириллическая буква вместо латинской). SMS при этом уходят от общего имени шлюза.', 'vl-account' ),
+					esc_html( $from ),
+					$list
+				);
+			} else {
+				$status = 'warn';
+				$text   = sprintf(
+					/* translators: 1: имя отправителя, 2: текст ошибки. */
+					__( 'Используется имя «%1$s», но проверить список согласованных имён не удалось: %2$s', 'vl-account' ),
+					esc_html( $from ),
+					esc_html( $sender['error'] ? $sender['error'] : __( 'нет связи с SMS.RU', 'vl-account' ) )
+				);
+			}
+
 			$checks[] = array(
 				'title'  => __( 'Имя отправителя', 'vl-account' ),
-				'status' => $from ? 'ok' : 'warn',
-				'text'   => $from
-					? sprintf(
-						/* translators: %s — имя отправителя. */
-						__( 'Используется имя «%s». Оно должно быть согласовано в разделе «Отправители» SMS.RU.', 'vl-account' ),
-						esc_html( $from )
-					)
-					: __( 'Не задано — сообщения уйдут от общего имени SMS.RU. Это допустимо, но с фирменным именем доставляемость выше.', 'vl-account' ),
+				'status' => $status,
+				'text'   => $text,
 			);
 		}
 

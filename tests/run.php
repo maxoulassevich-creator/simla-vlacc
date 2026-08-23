@@ -18,6 +18,7 @@ $files = array(
 	'test-subscriptions.php' => 'Подписки на поступление',
 	'test-address.php'   => 'Адреса оплаты и доставки',
 	'test-icons.php'     => 'Иконки плагина',
+	'test-sms.php'       => 'Клиент SMS.RU и имя отправителя',
 	'test-templates.php' => 'Шаблоны кабинета и корзины',
 );
 
