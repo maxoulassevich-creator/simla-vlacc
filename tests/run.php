@@ -17,6 +17,7 @@ $files = array(
 	'test-wishsuite.php' => 'Избранное WishSuite',
 	'test-subscriptions.php' => 'Подписки на поступление',
 	'test-address.php'   => 'Адреса оплаты и доставки',
+	'test-loyalty-auto.php' => 'Автовступление в программу лояльности',
 	'test-identity.php'  => 'Сопоставление и объединение аккаунтов',
 	'test-crm-directory.php' => 'Справочник покупателей CRM',
 	'test-icons.php'     => 'Иконки плагина',

@@ -125,6 +125,7 @@ class VL_Account_Settings {
 			'crm_enabled'          => 1,        // Общий выключатель интеграции.
 			'crm_bonus_source'     => 'auto',   // auto | crm | local — откуда брать баланс баллов.
 			'crm_loyalty_ui'       => 1,        // Вступление и активация ПЛ в разделе «Бонусы».
+			'crm_loyalty_auto'     => 1,        // Вступать в ПЛ автоматически при регистрации.
 			'crm_hide_wc_loyalty'  => 1,        // Убрать дублирующий раздел Simla в меню WooCommerce.
 			'crm_cache_ttl'        => 300,      // Сек. кэширования ответов CRM.
 			'crm_sync_customer'    => 1,        // Досылать телефон и согласия покупателя в CRM.

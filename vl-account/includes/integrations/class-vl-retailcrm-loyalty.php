@@ -21,6 +21,31 @@ defined( 'ABSPATH' ) || exit;
 class VL_Account_RetailCRM_Loyalty {
 
 	/**
+	 * Хук фонового вступления в программу.
+	 */
+	const CRON = 'vlacc_loyalty_autojoin';
+
+	/**
+	 * Метка: участие оформлено автоматически.
+	 */
+	const META_AUTO = 'vlacc_lp_auto';
+
+	/**
+	 * Метка: вступление ещё не доведено до конца.
+	 */
+	const META_PENDING = 'vlacc_lp_pending';
+
+	/**
+	 * Метка: CRM ждёт код подтверждения (checkId).
+	 */
+	const META_CHECK = 'vlacc_lp_check';
+
+	/**
+	 * Опция: CRM требует подтверждать участие по SMS.
+	 */
+	const OPTION_VERIFY = 'vlacc_crm_lp_verification';
+
+	/**
 	 * Экземпляр.
 	 *
 	 * @var VL_Account_RetailCRM_Loyalty|null
@@ -59,6 +84,212 @@ class VL_Account_RetailCRM_Loyalty {
 
 		// Кэш обновляем после списания баллов в корзине.
 		add_action( 'vlacc_loyalty_charged', array( __CLASS__, 'flush_current' ) );
+
+		// Новый покупатель вступает в программу сам, без лишних шагов в кабинете.
+		add_action( 'vlacc_user_registered', array( __CLASS__, 'on_registered' ), 30, 2 );
+		add_action( self::CRON, array( __CLASS__, 'auto_join' ) );
+	}
+
+	/* ------------------------------------------------------------------
+	 * Автоматическое вступление в программу
+	 * ------------------------------------------------------------------ */
+
+	/**
+	 * Автоматическое вступление включено.
+	 *
+	 * @return bool
+	 */
+	public static function auto_enabled() {
+		return (bool) VL_Account_Settings::get( 'crm_loyalty_auto', 1 ) && VL_Account_RetailCRM::loyalty_active();
+	}
+
+	/**
+	 * Новый аккаунт: ставим вступление в очередь.
+	 *
+	 * Приветственные баллы должны появиться сами. Покупатель уже подтвердил
+	 * номер кодом из SMS при регистрации — просить его подтверждать тот же
+	 * номер второй раз в разделе «Бонусы» незачем.
+	 *
+	 * @param int   $user_id Пользователь.
+	 * @param array $data    Данные регистрации.
+	 */
+	public static function on_registered( $user_id, $data = array() ) {
+		if ( ! self::auto_enabled() ) {
+			return;
+		}
+
+		$phone = isset( $data['phone'] ) ? VL_Account_Phone::normalize( $data['phone'] ) : '';
+
+		if ( '' === $phone ) {
+			$phone = VL_Account_User::get_phone( $user_id );
+		}
+
+		// Программа лояльности CRM живёт на телефоне — без него вступать не с чем.
+		if ( '' === $phone ) {
+			return;
+		}
+
+		update_user_meta( $user_id, self::META_PENDING, 1 );
+
+		// В фон: регистрация в CRM — это несколько запросов, и покупатель
+		// не должен ждать их на экране входа.
+		if ( ! wp_next_scheduled( self::CRON, array( (int) $user_id ) ) ) {
+			wp_schedule_single_event( time() + 1, self::CRON, array( (int) $user_id ) );
+		}
+	}
+
+	/**
+	 * Вступление ещё не доведено до конца.
+	 *
+	 * @param int $user_id Пользователь.
+	 * @return bool
+	 */
+	public static function pending( $user_id ) {
+		return '' !== (string) get_user_meta( $user_id, self::META_PENDING, true );
+	}
+
+	/**
+	 * Оформить и активировать участие без участия покупателя.
+	 *
+	 * @param int $user_id Пользователь.
+	 * @return string Итог: active | sms | error | skip.
+	 */
+	public static function auto_join( $user_id ) {
+		$user_id = (int) $user_id;
+
+		if ( ! $user_id || ! self::auto_enabled() ) {
+			return 'skip';
+		}
+
+		$user = get_user_by( 'id', $user_id );
+
+		if ( ! $user ) {
+			return 'skip';
+		}
+
+		// Замок от повторных заходов: планировщик и открытие раздела «Бонусы»
+		// могут прийти одновременно.
+		$lock = 'vlacc_lp_join_' . $user_id;
+
+		if ( get_transient( $lock ) ) {
+			return 'skip';
+		}
+
+		set_transient( $lock, 1, 2 * MINUTE_IN_SECONDS );
+
+		$phone = VL_Account_User::get_phone( $user_id );
+
+		if ( '' === $phone ) {
+			delete_user_meta( $user_id, self::META_PENDING );
+
+			return 'skip';
+		}
+
+		$account = VL_Account_RetailCRM::account( $user_id, true );
+
+		// Уже участвует — ничего не делаем.
+		if ( 'active' === $account['status'] ) {
+			self::finish( $user_id );
+
+			return 'active';
+		}
+
+		if ( 'error' === $account['status'] ) {
+			return 'error';
+		}
+
+		if ( 'none' === $account['status'] ) {
+			$registered = VL_Account_RetailCRM::register_account( $user_id, $phone );
+
+			if ( is_wp_error( $registered ) ) {
+				vlacc_log(
+					'Автовступление в программу лояльности не удалось',
+					array(
+						'user_id' => $user_id,
+						'error'   => $registered->get_error_message(),
+					)
+				);
+
+				return 'error';
+			}
+
+			$account = VL_Account_RetailCRM::account( $user_id, true );
+		}
+
+		if ( ! $account['id'] ) {
+			return 'error';
+		}
+
+		if ( 'active' === $account['status'] ) {
+			self::finish( $user_id );
+
+			return 'active';
+		}
+
+		$activated = VL_Account_RetailCRM::activate_account( $user_id, $account['id'] );
+
+		if ( is_wp_error( $activated ) ) {
+			vlacc_log(
+				'Автоактивация участия не удалась',
+				array(
+					'user_id' => $user_id,
+					'error'   => $activated->get_error_message(),
+				)
+			);
+
+			return 'error';
+		}
+
+		// CRM просит свой код подтверждения — обойти это со стороны сайта
+		// нельзя, подтверждение участия включено в настройках программы.
+		if ( '' !== $activated['check_id'] ) {
+			update_user_meta( $user_id, self::META_CHECK, $activated['check_id'] );
+			update_option( self::OPTION_VERIFY, 1, false );
+			delete_user_meta( $user_id, self::META_PENDING );
+
+			vlacc_log(
+				'Программа лояльности требует подтверждения участия по SMS',
+				array( 'user_id' => $user_id )
+			);
+
+			return 'sms';
+		}
+
+		self::finish( $user_id );
+
+		vlacc_log(
+			'Участие в программе лояльности оформлено автоматически',
+			array(
+				'user_id' => $user_id,
+				'phone'   => vlacc_mask_phone( $phone ),
+			)
+		);
+
+		return 'active';
+	}
+
+	/**
+	 * Завершить вступление: пометки и свежие данные в кабинете.
+	 *
+	 * @param int $user_id Пользователь.
+	 */
+	protected static function finish( $user_id ) {
+		delete_user_meta( $user_id, self::META_PENDING );
+		delete_user_meta( $user_id, self::META_CHECK );
+		update_user_meta( $user_id, self::META_AUTO, current_time( 'mysql' ) );
+		update_option( self::OPTION_VERIFY, 0, false );
+
+		VL_Account_User::save_consents( $user_id, array( 'loyalty' => true ) );
+		VL_Account_RetailCRM::flush( $user_id );
+	}
+
+	/**
+	 * CRM требует подтверждать участие по SMS.
+	 *
+	 * @return bool
+	 */
+	public static function verification_required() {
+		return (bool) get_option( self::OPTION_VERIFY, 0 );
 	}
 
 	/* ------------------------------------------------------------------
@@ -154,12 +385,24 @@ class VL_Account_RetailCRM_Loyalty {
 			'terms'        => self::terms_text(),
 			'privacy'      => self::privacy_text(),
 			'can_join'     => false,
+			'check_id'     => '',
 		);
 
 		$state['phone_masked'] = $state['phone'] ? VL_Account_Phone::format( $state['phone'] ) : '';
 
+		$state['check_id'] = (string) get_user_meta( $user_id, self::META_CHECK, true );
+
 		if ( ! VL_Account_RetailCRM::loyalty_active() || ! VL_Account_Settings::get( 'crm_loyalty_ui', 1 ) ) {
 			return $state;
+		}
+
+		// Запасной путь: если планировщик не отработал (у части хостингов
+		// WP-Cron выключен), доводим вступление здесь — покупатель как раз
+		// смотрит на свои баллы.
+		if ( self::pending( $user_id ) && $user_id === get_current_user_id() ) {
+			self::auto_join( $user_id );
+
+			$state['check_id'] = (string) get_user_meta( $user_id, self::META_CHECK, true );
 		}
 
 		$account = VL_Account_RetailCRM::account( $user_id );

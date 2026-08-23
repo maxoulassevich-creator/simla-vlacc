@@ -34,6 +34,7 @@ function do_action( $hook, ...$args ) {
 function get_option( $k, $d = false ) { return array_key_exists( $k, $GLOBALS['options'] ) ? $GLOBALS['options'][ $k ] : $d; }
 function update_option( $k, $v ) { $GLOBALS['options'][ $k ] = $v; return true; }
 function add_option( $k, $v ) { return update_option( $k, $v ); }
+function delete_option( $k ) { unset( $GLOBALS['options'][ $k ] ); return true; }
 function get_transient( $k ) { return array_key_exists( $k, $GLOBALS['transients'] ) ? $GLOBALS['transients'][ $k ] : false; }
 function set_transient( $k, $v, $ttl = 0 ) { $GLOBALS['transients'][ $k ] = $v; return true; }
 function delete_transient( $k ) { unset( $GLOBALS['transients'][ $k ] ); return true; }
@@ -231,11 +232,18 @@ class WC_Retailcrm_Proxy {
 class WC_Retailcrm_Loyalty {
 	public static $history = array();
 	public static $bonuses = array();
+	/** Управление из тестов: успех регистрации и ответ активации. */
+	public static $register_ok = true;
+	public static $activate    = null;
 	public function __construct( $api, $settings ) {}
 	public function getLoyaltyHistory( $id ) { return self::$history; }
 	public function getBonusDetails( $id, $status ) { return self::$bonuses[ $status ] ?? array(); }
-	public function registerCustomer( $userId, $phone, $site ) { $GLOBALS['log'][] = array( 'lp_register', $phone ); return true; }
-	public function activateLoyaltyCustomer( $id ) { return new WC_Retailcrm_Response( 200, '{"verification":{"checkId":"abc"}}' ); }
+	public function registerCustomer( $userId, $phone, $site ) { $GLOBALS['log'][] = array( 'lp_register', $phone ); return self::$register_ok; }
+	public function activateLoyaltyCustomer( $id ) {
+		$GLOBALS['log'][] = array( 'lp_activate', $id );
+
+		return self::$activate ? self::$activate : new WC_Retailcrm_Response( 200, '{"verification":{"checkId":"abc"}}' );
+	}
 	public function confirmSmsVerification( $c, $i ) { return true; }
 	public function calculateDiscountLoyalty( $items, $site, $customer, $bonuses = 0 ) { return WC_Retailcrm_Proxy::$responses['calculateDiscountLoyalty'] ?? 0; }
 	public function processingLoyaltyCoupon( $refresh = false ) { return null; }

@@ -175,11 +175,22 @@ $vl_discount = $vl_crm && class_exists( 'VL_Account_RetailCRM_Loyalty' )
 
 	<?php elseif ( $vl_crm && 'inactive' === $vl_status ) : ?>
 
+		<?php
+		// Кабинет уже пытался активировать участие сам, но CRM прислала свой код:
+		// в настройках программы лояльности включено подтверждение участия.
+		$vl_check = isset( $vl_state['check_id'] ) ? (string) $vl_state['check_id'] : '';
+		?>
+
 		<div class="vl-loyalty vl-loyalty--activate">
 			<h3 class="vl-subtitle"><?php esc_html_e( 'Осталось активировать участие', 'vl-account' ); ?></h3>
-			<p class="vl-note"><?php esc_html_e( 'Участие оформлено, но ещё не активно. Подтвердите его — и баллы начнут начисляться.', 'vl-account' ); ?></p>
 
-			<div class="vl-step is-active" data-vl-step="activate">
+			<?php if ( '' !== $vl_check ) : ?>
+				<p class="vl-note"><?php esc_html_e( 'Мы отправили код подтверждения в SMS — введите его, и баллы начнут начисляться.', 'vl-account' ); ?></p>
+			<?php else : ?>
+				<p class="vl-note"><?php esc_html_e( 'Участие оформлено, но ещё не активно. Подтвердите его — и баллы начнут начисляться.', 'vl-account' ); ?></p>
+			<?php endif; ?>
+
+			<div class="vl-step<?php echo '' === $vl_check ? ' is-active' : ''; ?>" data-vl-step="activate">
 				<label class="vl-check">
 					<input type="checkbox" name="loyalty_confirm" value="1" />
 					<span class="vl-check__box"></span>
@@ -191,11 +202,11 @@ $vl_discount = $vl_crm && class_exists( 'VL_Account_RetailCRM_Loyalty' )
 				</button>
 			</div>
 
-			<div class="vl-step" data-vl-step="sms">
+			<div class="vl-step<?php echo '' !== $vl_check ? ' is-active' : ''; ?>" data-vl-step="sms">
 				<div class="vl-field">
 					<label class="vl-label" for="vl-loyalty-code"><?php esc_html_e( 'Код из SMS', 'vl-account' ); ?></label>
 					<input type="text" id="vl-loyalty-code" name="code" class="vl-input vl-input--code" inputmode="numeric" autocomplete="one-time-code" />
-					<input type="hidden" name="check_id" value="" />
+					<input type="hidden" name="check_id" value="<?php echo esc_attr( $vl_check ); ?>" />
 				</div>
 
 				<button type="button" class="vl-btn vl-btn--primary" data-vl-action="loyalty-confirm">

@@ -926,6 +926,14 @@ class VL_Account_Admin {
 				__( 'Строка «Начислим баллов» переносится из блока оплаты к сумме заказа — её видно сразу.', 'vl-account' )
 			);
 			$this->checkbox(
+				'crm_loyalty_auto',
+				$s,
+				__( 'Вступать в программу автоматически', 'vl-account' ),
+				VL_Account_RetailCRM_Loyalty::verification_required()
+					? __( 'При регистрации нового покупателя кабинет сам оформляет участие в программе лояльности и активирует его — приветственные баллы приходят без лишних шагов. <strong>Сейчас CRM просит подтверждать участие своим кодом из SMS</strong>: выключите подтверждение участия в настройках программы лояльности в CRM, и активация станет полностью автоматической.', 'vl-account' )
+					: __( 'При регистрации нового покупателя кабинет сам оформляет участие в программе лояльности и активирует его — приветственные баллы приходят без лишних шагов. Номер уже подтверждён кодом из SMS при входе, второй раз подтверждать нечего.', 'vl-account' )
+			);
+			$this->checkbox(
 				'crm_promo_combine',
 				$s,
 				__( 'Промокод совместим с баллами', 'vl-account' ),
@@ -1054,6 +1062,28 @@ class VL_Account_Admin {
 		);
 
 		if ( $loyalty ) {
+			$auto = (bool) VL_Account_Settings::get( 'crm_loyalty_auto', 1 );
+
+			if ( ! $auto ) {
+				$checks[] = array(
+					'title'  => __( 'Вступление в программу', 'vl-account' ),
+					'status' => 'warn',
+					'text'   => __( 'Автоматическое вступление выключено: новый покупатель должен вступить в программу сам, в разделе «Бонусы».', 'vl-account' ),
+				);
+			} elseif ( VL_Account_RetailCRM_Loyalty::verification_required() ) {
+				$checks[] = array(
+					'title'  => __( 'Вступление в программу', 'vl-account' ),
+					'status' => 'warn',
+					'text'   => __( 'Кабинет оформляет участие сам, но CRM просит подтвердить его своим кодом из SMS — покупатель видит в разделе «Бонусы» поле для кода. Чтобы приветственные баллы приходили совсем без шагов, выключите подтверждение участия в настройках программы лояльности в CRM.', 'vl-account' ),
+				);
+			} else {
+				$checks[] = array(
+					'title'  => __( 'Вступление в программу', 'vl-account' ),
+					'status' => 'ok',
+					'text'   => __( 'Новый покупатель вступает в программу автоматически при регистрации — приветственные баллы приходят сами.', 'vl-account' ),
+				);
+			}
+
 			$coupons = 'yes' === get_option( 'woocommerce_enable_coupons' );
 
 			$checks[] = array(
@@ -1568,7 +1598,7 @@ class VL_Account_Admin {
 			'forms'   => array( 'passwordless', 'auto_register', 'auth_marketing_box', 'show_telegram', 'gate_cart', 'consent_privacy', 'consent_marketing' ),
 			'account' => array( 'wishlist_on_product', 'profile_address', 'profile_shipping', 'ws_enabled', 'ws_two_way', 'ws_merge_guest', 'ws_hide_our_button', 'ws_size_buttons', 'sn_enabled', 'sn_show_sent', 'sn_match_email' ),
 			'orders'  => array( 'auto_create_account', 'attach_guest_orders', 'match_by_phone', 'email_on_register', 'email_on_autocreate', 'email_confirm', 'carts_enabled', 'autofill', 'autofill_fix_forms' ),
-			'crm'     => array( 'crm_enabled', 'crm_sync_customer', 'crm_sync_consents', 'crm_skip_tech_email', 'crm_order_priority', 'crm_loyalty_ui', 'crm_hide_wc_loyalty', 'crm_credit_top', 'crm_promo_combine', 'crm_promo_hide_loyalty', 'crm_fix_coupon_email', 'identity_orders', 'identity_crm', 'crm_directory', 'crm_lookup_live', 'crm_sync_daily', 'identity_merge', 'identity_delete_merged', 'identity_trust_crm_email' ),
+			'crm'     => array( 'crm_enabled', 'crm_sync_customer', 'crm_sync_consents', 'crm_skip_tech_email', 'crm_order_priority', 'crm_loyalty_ui', 'crm_loyalty_auto', 'crm_hide_wc_loyalty', 'crm_credit_top', 'crm_promo_combine', 'crm_promo_hide_loyalty', 'crm_fix_coupon_email', 'identity_orders', 'identity_crm', 'crm_directory', 'crm_lookup_live', 'crm_sync_daily', 'identity_merge', 'identity_delete_merged', 'identity_trust_crm_email' ),
 			'design'  => array(),
 		);
 
