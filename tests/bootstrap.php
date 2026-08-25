@@ -71,6 +71,27 @@ function get_users( $args = array() ) {
 			}
 		}
 
+		// meta_query: поддерживаем набор клауз «ключ IN (значения)» с OR.
+		if ( ! empty( $args['meta_query'] ) ) {
+			$clauses = $args['meta_query'];
+			unset( $clauses['relation'] );
+			$hit = false;
+
+			foreach ( $clauses as $clause ) {
+				if ( empty( $clause['key'] ) ) { continue; }
+
+				$stored = (string) ( $GLOBALS['usermeta'][ $user->ID ][ $clause['key'] ] ?? '' );
+
+				if ( '' !== $stored && in_array( $stored, array_map( 'strval', (array) ( $clause['value'] ?? array() ) ), true ) ) {
+					$hit = true;
+				}
+			}
+
+			if ( ! $hit ) {
+				continue;
+			}
+		}
+
 		$result[] = ( isset( $args['fields'] ) && 'ID' === $args['fields'] ) ? $user->ID : $user;
 
 		if ( $number && count( $result ) >= $number ) {
@@ -145,6 +166,7 @@ function sanitize_email( $v ) { return trim( (string) $v ); }
 function home_url( $p = '/' ) { return 'https://example.test' . $p; }
 function wp_parse_url( $u, $c = -1 ) { return parse_url( $u, $c ); }
 function date_i18n( $f, $t ) { return gmdate( $f, $t ); }
+function get_date_from_gmt( $string, $format = 'Y-m-d H:i:s' ) { return gmdate( $format, strtotime( $string . ' UTC' ) + 3 * HOUR_IN_SECONDS ); }
 function get_permalink( $id ) { return 'https://example.test/?p=' . $id; }
 function get_post_status( $id ) { return 'publish'; }
 $GLOBALS['products'] = array();

@@ -539,11 +539,46 @@ class VL_Account_Identity {
 			return false;
 		}
 
+		// Снимок мог устареть: аккаунт завели уже после сверки. Проверяем вживую.
+		if ( empty( $row['user_id'] ) ) {
+			$row['user_id'] = self::user_for_crm_row( $row );
+
+			if ( $row['user_id'] && ! empty( $row['id'] ) ) {
+				VL_Account_RetailCRM_Directory::match_row( $row );
+			}
+		}
+
 		if ( ! empty( $row['user_id'] ) && ! self::is_adoptable( (int) $row['user_id'] ) ) {
 			return false;
 		}
 
 		return $row;
+	}
+
+	/**
+	 * Аккаунт сайта для клиента CRM: по externalId, затем по почте.
+	 *
+	 * @param array $row Строка справочника.
+	 * @return int ID пользователя или 0.
+	 */
+	protected static function user_for_crm_row( $row ) {
+		if ( ! empty( $row['external_id'] ) ) {
+			$user = get_user_by( 'id', (int) $row['external_id'] );
+
+			if ( $user ) {
+				return (int) $user->ID;
+			}
+		}
+
+		if ( ! empty( $row['email'] ) ) {
+			$user = get_user_by( 'email', $row['email'] );
+
+			if ( $user ) {
+				return (int) $user->ID;
+			}
+		}
+
+		return 0;
 	}
 
 	/* ------------------------------------------------------------------

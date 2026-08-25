@@ -410,6 +410,7 @@ class VL_Account_Admin {
 			);
 			$this->text( 'auth_intro', $s, __( 'Текст над полем телефона', 'vl-account' ), __( 'Пусто — «Авторизуйтесь или зарегистрируйтесь по номеру телефона — мы пришлём SMS с кодом подтверждения.»', 'vl-account' ) );
 			$this->text( 'auth_consent_note', $s, __( 'Текст согласия под кнопкой', 'vl-account' ), __( 'Пусто — «Нажимая «получить код», вы соглашаетесь с обработкой персональных данных» со ссылкой на страницу политики.', 'vl-account' ) );
+			$this->checkbox( 'ask_name', $s, __( 'Спрашивать имя', 'vl-account' ), __( 'Поле «Имя» под телефоном, обязательное. Имя записывается только тем, у кого его ещё нет: своё имя покупателя не перезаписывается. Без имени в CRM вместо покупателя уезжает его номер телефона.', 'vl-account' ) );
 			$this->checkbox( 'auth_marketing_box', $s, __( 'Галочка рассылки в форме входа', 'vl-account' ), __( 'Необязательная галочка согласия на рекламные рассылки прямо в форме. Если выключить, согласие собирается в кабинете, в разделе «Подписки».', 'vl-account' ) );
 			$this->checkbox( 'show_telegram', $s, __( 'Поле Telegram', 'vl-account' ), __( 'Показывать поле Telegram в кабинете.', 'vl-account' ) );
 			$this->text( 'cookie_days', $s, __( 'Помнить вход, дней', 'vl-account' ), __( 'Сколько посетитель остаётся авторизованным.', 'vl-account' ), 'number' );
@@ -1371,6 +1372,22 @@ class VL_Account_Admin {
 			);
 		}
 
+		// Часовой пояс: город или смещение.
+		$tz_string = (string) get_option( 'timezone_string' );
+		$gmt_offset = (float) get_option( 'gmt_offset' );
+
+		if ( '' === $tz_string && 0.0 !== $gmt_offset ) {
+			$checks[] = array(
+				'title'  => __( 'Часовой пояс сайта', 'vl-account' ),
+				'status' => 'warn',
+				'text'   => sprintf(
+					/* translators: %s — текущее смещение, например UTC+3. */
+					__( 'Задан смещением (%s), а не городом. При таком варианте WooCommerce в некоторых местах отдаёт время по UTC — например, в CRM дата регистрации покупателя уезжает назад на величину смещения. Выберите в «Настройки → Общие» город (Москва), тогда время везде будет местным. Дату регистрации в CRM плагин пересчитывает сам, но остальное лечится только настройкой.', 'vl-account' ),
+					'UTC' . ( $gmt_offset > 0 ? '+' : '' ) . rtrim( rtrim( number_format( $gmt_offset, 1, '.', '' ), '0' ), '.' )
+				),
+			);
+		}
+
 		// Отладочный вывод кода.
 		if ( VL_Account_Settings::get( 'debug_show_code', 0 ) ) {
 			$checks[] = array(
@@ -1595,7 +1612,7 @@ class VL_Account_Admin {
 		// Чекбоксы текущей вкладки, которых нет в POST, сбрасываем в 0.
 		$checkbox_map = array(
 			'sms'     => array( 'test_mode', 'debug_show_code' ),
-			'forms'   => array( 'passwordless', 'auto_register', 'auth_marketing_box', 'show_telegram', 'gate_cart', 'consent_privacy', 'consent_marketing' ),
+			'forms'   => array( 'passwordless', 'auto_register', 'ask_name', 'auth_marketing_box', 'show_telegram', 'gate_cart', 'consent_privacy', 'consent_marketing' ),
 			'account' => array( 'wishlist_on_product', 'profile_address', 'profile_shipping', 'ws_enabled', 'ws_two_way', 'ws_merge_guest', 'ws_hide_our_button', 'ws_size_buttons', 'sn_enabled', 'sn_show_sent', 'sn_match_email' ),
 			'orders'  => array( 'auto_create_account', 'attach_guest_orders', 'match_by_phone', 'email_on_register', 'email_on_autocreate', 'email_confirm', 'carts_enabled', 'autofill', 'autofill_fix_forms' ),
 			'crm'     => array( 'crm_enabled', 'crm_sync_customer', 'crm_sync_consents', 'crm_skip_tech_email', 'crm_order_priority', 'crm_loyalty_ui', 'crm_loyalty_auto', 'crm_hide_wc_loyalty', 'crm_credit_top', 'crm_promo_combine', 'crm_promo_hide_loyalty', 'crm_fix_coupon_email', 'identity_orders', 'identity_crm', 'crm_directory', 'crm_lookup_live', 'crm_sync_daily', 'identity_merge', 'identity_delete_merged', 'identity_trust_crm_email' ),

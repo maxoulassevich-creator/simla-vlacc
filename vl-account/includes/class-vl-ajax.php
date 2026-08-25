@@ -195,7 +195,12 @@ class VL_Account_Ajax {
 		// (по заказам сайта и базе покупателей CRM) и объединять дубли.
 		$user = VL_Account_Identity::prepare_login( $user, $phone );
 
+		// Имя из формы: заполняем только там, где имени ещё нет.
+		$name = VL_Account_User::sanitize_name( $this->post( 'name' ) );
+
 		if ( $user ) {
+			VL_Account_User::maybe_set_name( $user->ID, $name );
+
 			update_user_meta( $user->ID, VL_Account_User::META_VERIFIED, current_time( 'mysql' ) );
 			VL_Account_Auth::login_user( $user->ID, true );
 
@@ -222,10 +227,11 @@ class VL_Account_Ajax {
 
 		$user_id = VL_Account_User::create(
 			array(
-				'phone'    => $phone,
-				'verified' => true,
-				'consents' => $consents,
-				'source'   => 'sms_one_step',
+				'phone'      => $phone,
+				'first_name' => $name,
+				'verified'   => true,
+				'consents'   => $consents,
+				'source'     => 'sms_one_step',
 			)
 		);
 

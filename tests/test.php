@@ -166,6 +166,23 @@ $data2 = apply_filters(
 	new WC_Customer( 2 )
 );
 check( 'настоящий e-mail сохранён', 'real@example.com' === $data2['email'] );
+
+// Дата регистрации: WordPress хранит её в UTC, в CRM должна уехать местная.
+$GLOBALS['users'][2] = new WP_User(
+	array(
+		'ID'              => 2,
+		'user_email'      => 'real@example.com',
+		'user_registered' => '2026-08-23 19:00:00',
+	)
+);
+
+$data3 = apply_filters(
+	'retailcrm_process_customer',
+	array( 'createdAt' => '2026-08-23 19:00:00' ),
+	new WC_Customer( 2 )
+);
+
+check( 'дата регистрации переведена в местное время', '2026-08-23 22:00:00' === $data3['createdAt'], print_r( $data3, true ) );
 check( 'дубль телефона не добавлен', 1 === count( $data2['phones'] ), print_r( $data2['phones'], true ) );
 
 echo "\n== 10. Приоритет обработки заказа ==\n";

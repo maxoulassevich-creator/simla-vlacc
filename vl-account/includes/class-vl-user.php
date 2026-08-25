@@ -178,6 +178,9 @@ class VL_Account_User {
 		$phone = VL_Account_Phone::normalize( $data['phone'] );
 		$email = sanitize_email( $data['email'] );
 
+		// Имя из формы входа: телефон вместо имени не принимаем.
+		$data['first_name'] = self::sanitize_name( $data['first_name'] );
+
 		if ( '' === $phone && '' === $email ) {
 			return new WP_Error( 'vlacc_no_identity', __( 'Нужен телефон или e-mail.', 'vl-account' ) );
 		}
@@ -273,6 +276,114 @@ class VL_Account_User {
 		);
 
 		return $user_id;
+	}
+
+	/**
+	 * Имя покупателя из формы входа.
+	 *
+	 * Правило простое: своё имя покупателя не трогаем. Заполняем только там,
+	 * где имени нет, — в том числе у аккаунтов, где вместо имени стоял номер
+	 * телефона (так было до появления поля «Имя» в форме входа).
+	 *
+	 * @param int    $user_id Пользователь.
+	 * @param string $name    Имя из формы.
+	 * @return bool Записали ли имя.
+	 */
+	public static function maybe_set_name( $user_id, $name ) {
+		$user_id = (int) $user_id;
+		$name    = self::sanitize_name( $name );
+
+		if ( ! $user_id || '' === $name ) {
+			return false;
+		}
+
+		$user = get_user_by( 'id', $user_id );
+
+		if ( ! $user ) {
+			return false;
+		}
+
+		// Имя уже есть — это данные покупателя, перезаписывать их нельзя.
+		if ( '' !== trim( (string) get_user_meta( $user_id, 'first_name', true ) ) ) {
+			return false;
+		}
+
+		update_user_meta( $user_id, 'first_name', $name );
+
+		if ( '' === trim( (string) get_user_meta( $user_id, 'billing_first_name', true ) ) ) {
+			update_user_meta( $user_id, 'billing_first_name', $name );
+		}
+
+		// Отображаемое имя: до сих пор там стоял телефон или логин.
+		if ( self::display_name_is_technical( $user ) ) {
+			$last    = trim( (string) get_user_meta( $user_id, 'last_name', true ) );
+			$display = trim( $name . ' ' . $last );
+
+			wp_update_user(
+				array(
+					'ID'           => $user_id,
+					'display_name' => $display,
+					'nickname'     => $name,
+				)
+			);
+		}
+
+		vlacc_log(
+			'Имя покупателя записано из формы входа',
+			array(
+				'user_id' => $user_id,
+			)
+		);
+
+		// В CRM имя должно уехать сразу, иначе там останется номер телефона.
+		if ( class_exists( 'VL_Account_RetailCRM_Customer' ) && class_exists( 'VL_Account_RetailCRM' ) && VL_Account_RetailCRM::enabled() ) {
+			VL_Account_RetailCRM_Customer::push( $user_id, true );
+		}
+
+		return true;
+	}
+
+	/**
+	 * Отображаемое имя — это на самом деле телефон или логин.
+	 *
+	 * @param WP_User $user Пользователь.
+	 * @return bool
+	 */
+	protected static function display_name_is_technical( $user ) {
+		$display = trim( (string) $user->display_name );
+
+		if ( '' === $display ) {
+			return true;
+		}
+
+		if ( $display === $user->user_login || $display === $user->user_email ) {
+			return true;
+		}
+
+		// «+7 (926) 123-45-67» или «79261234567» — это не имя.
+		return '' !== VL_Account_Phone::normalize( $display ) && '' === trim( preg_replace( '/[\d\s()+\-]/u', '', $display ) );
+	}
+
+	/**
+	 * Привести имя из формы к аккуратному виду.
+	 *
+	 * @param string $name Имя.
+	 * @return string
+	 */
+	public static function sanitize_name( $name ) {
+		$name = sanitize_text_field( (string) $name );
+		$name = trim( preg_replace( '/\s+/u', ' ', $name ) );
+
+		if ( '' === $name ) {
+			return '';
+		}
+
+		// Номер телефона вместо имени — это не имя.
+		if ( '' === trim( preg_replace( '/[\d\s()+\-]/u', '', $name ) ) ) {
+			return '';
+		}
+
+		return mb_substr( $name, 0, 60 );
 	}
 
 	/**

@@ -38,6 +38,7 @@ if ( '' === trim( $vl_consent_note ) ) {
 }
 
 $vl_marketing = VL_Account_Settings::get( 'consent_marketing', 1 ) && VL_Account_Settings::get( 'auth_marketing_box', 1 );
+$vl_ask_name  = (bool) VL_Account_Settings::get( 'ask_name', 1 );
 ?>
 <form class="vl-form vl-form--login" data-vl-form="login" method="post" novalidate>
 
@@ -59,6 +60,18 @@ $vl_marketing = VL_Account_Settings::get( 'consent_marketing', 1 ) && VL_Account
 				data-vl-phone required />
 			<span class="vl-field__error" data-vl-error="phone"></span>
 		</div>
+
+		<?php if ( $vl_ask_name ) : ?>
+			<div class="vl-field">
+				<label class="vl-label" for="vl-login-name">
+					<?php echo vlacc_icon( 'user', 15 ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+					<?php esc_html_e( 'Имя', 'vl-account' ); ?> <span class="vl-req">*</span>
+				</label>
+				<input type="text" id="vl-login-name" name="name" class="vl-input" autocomplete="given-name"
+					placeholder="<?php esc_attr_e( 'Как к вам обращаться', 'vl-account' ); ?>" required />
+				<span class="vl-field__error" data-vl-error="name"></span>
+			</div>
+		<?php endif; ?>
 
 		<?php if ( $vl_marketing ) : ?>
 			<div class="vl-consents vl-consents--compact">

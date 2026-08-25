@@ -304,7 +304,99 @@ foreach ( $GLOBALS['log'] as $entry ) {
 
 check( 'случай ушёл в журнал', $conflict, print_r( $GLOBALS['log'], true ) );
 
-echo "\n== 8. Выключатели ==\n";
+echo "\n== 8. Поиск через базу CRM ==\n";
+reset_world();
+
+VL_Account_Settings::update( array( 'identity_crm' => 1, 'identity_orders' => 0 ) );
+
+// Подменяем справочник CRM: телефон известен, аккаунт в снимке не проставлен.
+class Fake_Directory {
+	public static $row     = false;
+	public static $matched = 0;
+	public static function find_by_phone( $phone ) { return self::$row; }
+	public static function match_row( $row ) { ++self::$matched; return 'matched'; }
+}
+
+class_alias( 'Fake_Directory', 'VL_Account_RetailCRM_Directory' );
+
+// Настоящий мост CRM включаем ключами интеграции, как на боевом сайте.
+update_option(
+	'woocommerce_integration-retailcrm_settings',
+	array(
+		'api_url' => 'https://demo.simla.com',
+		'api_key' => 'key',
+	)
+);
+
+make_user( 55, 'crm-client@example.com' );
+
+Fake_Directory::$row = array(
+	'id'          => 7,
+	'crm_id'      => 700,
+	'external_id' => 55,
+	'phone'       => '79261234567',
+	'email'       => 'crm-client@example.com',
+	'user_id'     => 55,
+	'status'      => 'matched',
+);
+
+check( 'аккаунт найден по базе CRM', 55 === (int) VL_Account_Identity::find_in_crm( '79261234567' )['user_id'] );
+
+$found = VL_Account_Identity::find_elsewhere( '79261234567' );
+check( 'источник — CRM', $found && 'crm' === $found['source'], print_r( $found, true ) );
+
+// Снимок устарел: аккаунт завели после сверки, user_id в строке пустой.
+reset_world();
+make_user( 56, 'later@example.com' );
+
+Fake_Directory::$matched = 0;
+Fake_Directory::$row     = array(
+	'id'          => 8,
+	'crm_id'      => 701,
+	'external_id' => 0,
+	'phone'       => '79261234567',
+	'email'       => 'later@example.com',
+	'user_id'     => 0,
+	'status'      => 'no_user',
+);
+
+$row = VL_Account_Identity::find_in_crm( '79261234567' );
+
+check( 'устаревший снимок: аккаунт найден по почте', $row && 56 === (int) $row['user_id'], print_r( $row, true ) );
+check( 'снимок сразу поправлен', 1 === Fake_Directory::$matched );
+
+// Клиент CRM с правами администратора — не отдаём.
+reset_world();
+make_user( 57, 'boss@example.com', array( 'manage_options' ) );
+
+Fake_Directory::$row = array(
+	'id'          => 9,
+	'crm_id'      => 702,
+	'external_id' => 57,
+	'phone'       => '79261234567',
+	'email'       => 'boss@example.com',
+	'user_id'     => 57,
+	'status'      => 'matched',
+);
+
+check( 'админа по базе CRM не отдаём', false === VL_Account_Identity::find_in_crm( '79261234567' ) );
+
+// Конфликт в снимке.
+Fake_Directory::$row = array(
+	'id'          => 10,
+	'crm_id'      => 703,
+	'external_id' => 0,
+	'phone'       => '79261234567',
+	'email'       => '',
+	'user_id'     => 0,
+	'status'      => 'conflict',
+);
+
+check( 'конфликт в снимке — не выбираем', false === VL_Account_Identity::find_in_crm( '79261234567' ) );
+
+VL_Account_Settings::update( array( 'identity_crm' => 0, 'identity_orders' => 1 ) );
+
+echo "\n== 9. Выключатели ==\n";
 reset_world();
 
 VL_Account_Settings::update( array( 'identity_merge' => 0 ) );

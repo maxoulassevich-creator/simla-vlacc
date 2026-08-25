@@ -3,7 +3,7 @@
  * Plugin Name: VL Account — вход, регистрация по SMS и личный кабинет
  * Plugin URI:  https://example.com/
  * Description: Вход и регистрация по номеру телефона через SMS.RU (код в SMS или звонком), восстановление пароля, личный кабинет WooCommerce (заказы, избранное, промокод, бонусы, согласия), автосоздание кабинета при заказе, привязка гостевых заказов, адреса доставки и оплаты в кабинете, объединение старых аккаунтов с входом по SMS, отчёт по брошенным корзинам, автозаполнение форм. Интеграция с плагинами Simla.com (RetailCRM), WishSuite (избранное) и Back In Stock Notifier (подписка на размер). Всё выводится шорткодами.
- * Version:     1.8.0
+ * Version:     1.9.0
  * Requires PHP: 7.4
  * Requires at least: 5.8
  * Author:      —
@@ -17,7 +17,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'VLACC_VERSION', '1.8.0' );
+define( 'VLACC_VERSION', '1.9.0' );
 define( 'VLACC_FILE', __FILE__ );
 define( 'VLACC_PATH', plugin_dir_path( __FILE__ ) );
 define( 'VLACC_URL', plugin_dir_url( __FILE__ ) );
@@ -213,6 +213,7 @@ final class VL_Account_Plugin {
 					'resend'       => __( 'Отправить код повторно', 'vl-account' ),
 					'bad_phone'    => __( 'Введите корректный номер телефона', 'vl-account' ),
 					'bad_code'     => __( 'Введите код из %d цифр', 'vl-account' ),
+					'need_name'    => __( 'Напишите, как к вам обращаться', 'vl-account' ),
 					'network'      => __( 'Не удалось связаться с сервером. Попробуйте ещё раз.', 'vl-account' ),
 					'copied'       => __( 'Скопировано', 'vl-account' ),
 					'confirm_exit' => __( 'Выйти из личного кабинета?', 'vl-account' ),

@@ -262,12 +262,20 @@
 
 	function sendCode( form, button, purpose ) {
 		var phone = value( form, 'phone' );
+		var nameInput = qs( form, '[name="name"]' );
 
 		fieldErrors( form, null );
 		message( form, '' );
 
 		if ( phone.replace( /\D/g, '' ).length < 10 ) {
 			fieldErrors( form, { phone: cfg.i18n.bad_phone } );
+			return;
+		}
+
+		// Имя обязательно: без него в CRM вместо покупателя уезжает номер.
+		if ( nameInput && ! value( form, 'name' ) ) {
+			fieldErrors( form, { name: cfg.i18n.need_name } );
+			nameInput.focus();
 			return;
 		}
 
@@ -348,6 +356,7 @@
 			phone: phone,
 			code: code,
 			purpose: purpose,
+			name: value( form, 'name' ),
 			consent_marketing: checked( form, 'consent_marketing' )
 		} ).then( function ( res ) {
 			loading( button, false );

@@ -290,7 +290,10 @@ class VL_Account_RetailCRM_Customer {
 			}
 		}
 
-		// 4. Избранное в пользовательское поле покупателя.
+		// 4. Дата регистрации по местному времени магазина.
+		self::fix_created_at( $data, $user_id );
+
+		// 5. Избранное в пользовательское поле покупателя.
 		$field = self::wishlist_field();
 
 		if ( $field ) {
@@ -300,6 +303,31 @@ class VL_Account_RetailCRM_Customer {
 		}
 
 		return apply_filters( 'vlacc_crm_customer_data', $data, $user_id, $customer );
+	}
+
+	/**
+	 * Дата регистрации покупателя — по времени магазина.
+	 *
+	 * WordPress хранит дату регистрации в UTC. Плагин Simla берёт её через
+	 * WC_Customer, и если часовой пояс сайта задан не городом, а смещением
+	 * («UTC+3»), WooCommerce отдаёт время без поправки — в CRM карточка
+	 * создаётся на три часа раньше. Пересчитываем сами.
+	 *
+	 * @param array $data    Данные покупателя (по ссылке).
+	 * @param int   $user_id Пользователь.
+	 */
+	protected static function fix_created_at( &$data, $user_id ) {
+		$user = get_user_by( 'id', $user_id );
+
+		if ( ! $user || empty( $user->user_registered ) ) {
+			return;
+		}
+
+		$local = get_date_from_gmt( $user->user_registered, 'Y-m-d H:i:s' );
+
+		if ( $local ) {
+			$data['createdAt'] = $local;
+		}
 	}
 
 	/**
