@@ -237,7 +237,14 @@ class VL_Account_Identity {
 		$where  = array( '1=1' );
 		$params = array();
 
-		if ( $args['event'] ) {
+		if ( is_array( $args['event'] ) ) {
+			$events = array_filter( array_map( 'sanitize_key', $args['event'] ) );
+
+			if ( $events ) {
+				$where[] = 'event IN (' . implode( ', ', array_fill( 0, count( $events ), '%s' ) ) . ')';
+				$params  = array_merge( $params, $events );
+			}
+		} elseif ( $args['event'] ) {
 			$where[]  = 'event = %s';
 			$params[] = $args['event'];
 		}

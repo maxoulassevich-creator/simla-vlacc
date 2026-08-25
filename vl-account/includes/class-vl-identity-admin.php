@@ -121,6 +121,28 @@ class VL_Account_Identity_Admin {
 				$notice = 'unlinked_' . $count;
 				break;
 
+			case 'unlink_many':
+				$pairs = isset( $_POST['pairs'] ) ? (array) wp_unslash( $_POST['pairs'] ) : array();
+				$count = 0;
+
+				foreach ( $pairs as $pair ) {
+					$parts = explode( '|', sanitize_text_field( $pair ) );
+
+					if ( 2 !== count( $parts ) ) {
+						continue;
+					}
+
+					$count += self::unlink_phone( (int) $parts[0], $parts[1] ) ? 1 : 0;
+				}
+
+				$notice = 'unlinked_' . $count;
+				break;
+
+			case 'undo_backfill':
+				$count  = self::undo_backfill();
+				$notice = 'unlinked_' . $count;
+				break;
+
 			case 'forget':
 				$phone  = isset( $_POST['phone'] ) ? sanitize_text_field( wp_unslash( $_POST['phone'] ) ) : '';
 				$count  = VL_Account_RetailCRM_Directory::forget_phone( $phone );
@@ -292,6 +314,179 @@ class VL_Account_Identity_Admin {
 		}
 
 		return true;
+	}
+
+	/**
+	 * Что плагин записал в чужие профили: телефоны и чем они подтверждаются.
+	 *
+	 * Телефон в аккаунт пишут ровно два места: вход по найденному аккаунту
+	 * (событие match) и кнопка «Дописать телефоны в аккаунты» (событие
+	 * backfill). Оба пишутся в журнал, поэтому список всегда полный —
+	 * остальные записи номера идут из собственных заказов аккаунта и
+	 * подозрений не вызывают.
+	 *
+	 * @param int $limit Сколько записей журнала просмотреть.
+	 * @return array Строки: user, phone, source, verdict, note.
+	 */
+	public static function audit_phones( $limit = 200 ) {
+		$rows = VL_Account_Identity::log_query(
+			array(
+				'event' => array( 'match', 'backfill' ),
+				'limit' => (int) $limit,
+			)
+		);
+
+		$seen   = array();
+		$result = array();
+
+		foreach ( $rows as $row ) {
+			$user_id = (int) $row['user_id'];
+			$phone   = VL_Account_Phone::normalize( $row['phone'] );
+			$key     = $user_id . '-' . $phone;
+
+			if ( ! $user_id || '' === $phone || isset( $seen[ $key ] ) ) {
+				continue;
+			}
+
+			$seen[ $key ] = true;
+
+			// Номер уже сняли или заменили — строка неактуальна.
+			if ( (string) get_user_meta( $user_id, VL_Account_User::META_PHONE, true ) !== $phone ) {
+				continue;
+			}
+
+			$user = get_user_by( 'id', $user_id );
+
+			if ( ! $user ) {
+				continue;
+			}
+
+			$check = self::phone_evidence( $user, $phone );
+
+			$result[] = array(
+				'user'    => $user,
+				'phone'   => $phone,
+				'source'  => (string) $row['event'],
+				'date'    => (string) $row['created'],
+				'verdict' => $check['verdict'],
+				'note'    => $check['note'],
+			);
+		}
+
+		// Сомнительные — наверх, с ними и надо разбираться.
+		usort(
+			$result,
+			static function ( $a, $b ) {
+				$weight = array(
+					'bad'     => 0,
+					'unknown' => 1,
+					'ok'      => 2,
+				);
+
+				return $weight[ $a['verdict'] ] - $weight[ $b['verdict'] ];
+			}
+		);
+
+		return $result;
+	}
+
+	/**
+	 * Чем подтверждается, что номер принадлежит владельцу аккаунта.
+	 *
+	 * @param WP_User $user  Аккаунт.
+	 * @param string  $phone Нормализованный номер.
+	 * @return array ['verdict' => ok|unknown|bad, 'note' => string]
+	 */
+	public static function phone_evidence( $user, $phone ) {
+		// 1. Заказ самого аккаунта с этим номером — доказательство надёжнее нет.
+		if ( class_exists( 'VL_Account_Orders' ) && vlacc_is_woo() ) {
+			foreach ( (array) VL_Account_Orders::find_orders_by_phone( $phone ) as $order ) {
+				if ( $order instanceof WC_Order && (int) $order->get_customer_id() === (int) $user->ID ) {
+					return array(
+						'verdict' => 'ok',
+						'note'    => sprintf(
+							/* translators: %d — номер заказа. */
+							__( 'подтверждён заказом №%d этого аккаунта', 'vl-account' ),
+							$order->get_id()
+						),
+					);
+				}
+			}
+		}
+
+		if ( ! class_exists( 'VL_Account_RetailCRM_Directory' ) ) {
+			return array(
+				'verdict' => 'unknown',
+				'note'    => __( 'проверить нечем: заказов с этим номером у аккаунта нет', 'vl-account' ),
+			);
+		}
+
+		$rows     = VL_Account_RetailCRM_Directory::rows_by_phone( $phone );
+		$combined = VL_Account_RetailCRM_Directory::combine( $rows );
+
+		// 2. На номере разные люди — записывать его в профиль было ошибкой.
+		if ( $combined ) {
+			$reason = VL_Account_RetailCRM_Directory::conflict_reason( $combined );
+
+			if ( '' !== $reason ) {
+				return array(
+					'verdict' => 'bad',
+					'note'    => $reason,
+				);
+			}
+
+			// 3. Карточка CRM с этим номером принадлежит владельцу аккаунта.
+			$email = isset( $combined['email'] ) ? strtolower( (string) $combined['email'] ) : '';
+
+			if ( '' !== $email && strtolower( $user->user_email ) === $email ) {
+				return array(
+					'verdict' => 'ok',
+					'note'    => __( 'подтверждён карточкой CRM с той же почтой', 'vl-account' ),
+				);
+			}
+
+			if ( '' !== $email ) {
+				return array(
+					'verdict' => 'bad',
+					'note'    => sprintf(
+						/* translators: %s — почта из карточки CRM. */
+						__( 'в карточке CRM с этим номером другая почта: %s', 'vl-account' ),
+						$email
+					),
+				);
+			}
+		}
+
+		return array(
+			'verdict' => 'unknown',
+			'note'    => __( 'заказов с этим номером нет, в CRM подтверждения тоже нет', 'vl-account' ),
+		);
+	}
+
+	/**
+	 * Откатить кнопку «Дописать телефоны в аккаунты».
+	 *
+	 * Снимает номера ровно с тех аккаунтов, которым их записала эта кнопка,
+	 * и только если номер с тех пор не менялся.
+	 *
+	 * @return int Сколько аккаунтов вычищено.
+	 */
+	public static function undo_backfill() {
+		$rows  = VL_Account_Identity::log_query(
+			array(
+				'event' => 'backfill',
+				'limit' => 5000,
+			)
+		);
+		$count = 0;
+
+		foreach ( $rows as $row ) {
+			if ( self::unlink_phone( (int) $row['user_id'], (string) $row['phone'] ) ) {
+				++$count;
+			}
+		}
+
+		return $count;
 	}
 
 	/**
@@ -846,6 +1041,71 @@ class VL_Account_Identity_Admin {
 					</p>
 				</form>
 			<?php endif; ?>
+
+			<h2><?php esc_html_e( 'Телефоны, записанные плагином', 'vl-account' ); ?></h2>
+
+			<p class="description" style="max-width:900px">
+				<?php esc_html_e( 'Номер в профиль аккаунта попадает от плагина ровно в двух случаях: вход по найденному аккаунту и кнопка «Дописать телефоны в аккаунты». Оба случая записаны в журнал, поэтому список полный. Для каждой записи видно, чем номер подтверждается: заказом самого аккаунта или карточкой CRM с той же почтой. Сомнительные записи — сверху; отметьте и снимите номер, аккаунт при этом не пострадает.', 'vl-account' ); ?>
+			</p>
+
+			<?php $vl_audit = self::audit_phones(); ?>
+
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="margin-bottom:24px">
+				<?php wp_nonce_field( 'vlacc_identity' ); ?>
+				<input type="hidden" name="action" value="vlacc_identity_action" />
+
+				<table class="widefat striped" style="max-width:1100px;margin-bottom:12px">
+					<thead>
+						<tr>
+							<th style="width:28px"></th>
+							<th><?php esc_html_e( 'Аккаунт', 'vl-account' ); ?></th>
+							<th><?php esc_html_e( 'Номер', 'vl-account' ); ?></th>
+							<th><?php esc_html_e( 'Откуда', 'vl-account' ); ?></th>
+							<th><?php esc_html_e( 'Подтверждение', 'vl-account' ); ?></th>
+						</tr>
+					</thead>
+					<tbody>
+						<?php if ( ! $vl_audit ) : ?>
+							<tr><td colspan="5"><?php esc_html_e( 'Плагин никому телефон не записывал.', 'vl-account' ); ?></td></tr>
+						<?php endif; ?>
+
+						<?php foreach ( $vl_audit as $vl_row ) : ?>
+							<tr>
+								<td>
+									<input type="checkbox" name="pairs[]" value="<?php echo esc_attr( $vl_row['user']->ID . '|' . $vl_row['phone'] ); ?>"
+										<?php checked( 'bad', $vl_row['verdict'] ); ?> />
+								</td>
+								<td>
+									<a href="<?php echo esc_url( get_edit_user_link( $vl_row['user']->ID ) ); ?>">
+										#<?php echo (int) $vl_row['user']->ID; ?> — <?php echo esc_html( $vl_row['user']->user_login ); ?>
+									</a>
+									<br /><span class="description"><?php echo esc_html( $vl_row['user']->user_email ); ?></span>
+								</td>
+								<td><?php echo esc_html( VL_Account_Phone::format( $vl_row['phone'] ) ); ?></td>
+								<td>
+									<?php echo esc_html( 'backfill' === $vl_row['source'] ? __( 'кнопка «Дописать телефоны»', 'vl-account' ) : __( 'вход по номеру', 'vl-account' ) ); ?>
+									<br /><span class="description"><?php echo esc_html( $vl_row['date'] ); ?></span>
+								</td>
+								<td>
+									<?php if ( 'bad' === $vl_row['verdict'] ) : ?>
+										<span style="color:#d40000"><strong><?php esc_html_e( 'сомнительно', 'vl-account' ); ?></strong></span> —
+									<?php elseif ( 'ok' === $vl_row['verdict'] ) : ?>
+										<span style="color:#1a7f37"><strong><?php esc_html_e( 'подтверждён', 'vl-account' ); ?></strong></span> —
+									<?php endif; ?>
+									<?php echo esc_html( $vl_row['note'] ); ?>
+								</td>
+							</tr>
+						<?php endforeach; ?>
+					</tbody>
+				</table>
+
+				<button class="button" name="do" value="unlink_many" onclick="return confirm('<?php echo esc_js( __( 'Снять номер с отмеченных аккаунтов? Аккаунты, заказы и баллы останутся на месте.', 'vl-account' ) ); ?>')">
+					<?php esc_html_e( 'Отвязать номера от отмеченных', 'vl-account' ); ?>
+				</button>
+				<button class="button" name="do" value="undo_backfill" onclick="return confirm('<?php echo esc_js( __( 'Снять все номера, записанные кнопкой «Дописать телефоны в аккаунты»? Затронет только те аккаунты, где номер с тех пор не менялся.', 'vl-account' ) ); ?>')">
+					<?php esc_html_e( 'Откатить «Дописать телефоны»', 'vl-account' ); ?>
+				</button>
+			</form>
 
 			<h2><?php esc_html_e( 'Журнал сопоставлений', 'vl-account' ); ?></h2>
 

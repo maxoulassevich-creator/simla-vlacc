@@ -22,6 +22,7 @@ $files = array(
 	'test-identity.php'  => 'Сопоставление и объединение аккаунтов',
 	'test-crm-directory.php' => 'Справочник покупателей CRM',
 	'test-crm-duplicates.php' => 'Дубли карточек и счетов в CRM',
+	'test-phone-audit.php' => 'Разбор телефонов, записанных плагином',
 	'test-icons.php'     => 'Иконки плагина',
 	'test-sms.php'       => 'Клиент SMS.RU и имя отправителя',
 	'test-templates.php' => 'Шаблоны кабинета и корзины',
