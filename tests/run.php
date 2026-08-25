@@ -21,6 +21,7 @@ $files = array(
 	'test-loyalty-auto.php' => 'Автовступление в программу лояльности',
 	'test-identity.php'  => 'Сопоставление и объединение аккаунтов',
 	'test-crm-directory.php' => 'Справочник покупателей CRM',
+	'test-crm-duplicates.php' => 'Дубли карточек и счетов в CRM',
 	'test-icons.php'     => 'Иконки плагина',
 	'test-sms.php'       => 'Клиент SMS.RU и имя отправителя',
 	'test-templates.php' => 'Шаблоны кабинета и корзины',

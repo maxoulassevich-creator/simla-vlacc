@@ -217,58 +217,121 @@ class VL_Account_Identity_Admin {
 			? count( $orders )
 			: __( 'нет', 'vl-account' );
 
-		// 3. Снимок базы CRM.
-		$row = VL_Account_RetailCRM_Directory::query(
-			array(
-				'search' => $normalized,
-				'limit'  => 3,
-			)
-		);
+		// 3. Живой опрос CRM: все карточки этого номера кладём в снимок и
+		// сопоставляем с аккаунтами — так проверка заодно чинит данные.
+		$api = VL_Account_RetailCRM::enabled() ? VL_Account_RetailCRM::api() : false;
 
-		$report[ __( 'В снимке базы CRM', 'vl-account' ) ] = $row
-			? sprintf( 'клиент %d, статус %s, аккаунт %d', (int) $row[0]['crm_id'], $row[0]['status'], (int) $row[0]['user_id'] )
+		if ( $api ) {
+			$customers = VL_Account_RetailCRM_Directory::collect_from_api( $api, $normalized );
+			$live      = array();
+
+			foreach ( $customers as $customer ) {
+				VL_Account_RetailCRM_Directory::store( $customer );
+
+				$live[] = sprintf(
+					'id %d, externalId %s, %s %s, %s',
+					isset( $customer['id'] ) ? (int) $customer['id'] : 0,
+					! empty( $customer['externalId'] ) ? (int) $customer['externalId'] : '—',
+					isset( $customer['firstName'] ) ? $customer['firstName'] : '',
+					isset( $customer['lastName'] ) ? $customer['lastName'] : '',
+					isset( $customer['email'] ) ? $customer['email'] : '—'
+				);
+			}
+
+			foreach ( VL_Account_RetailCRM_Directory::rows_by_phone( $normalized ) as $row ) {
+				VL_Account_RetailCRM_Directory::match_row( $row );
+			}
+
+			VL_Account_RetailCRM_Directory::flush_cache();
+			VL_Account_Identity::flush_cache();
+
+			$report[ __( 'Клиент в CRM', 'vl-account' ) ] = $live
+				? implode( '; ', $live )
+				: __( 'не найден ни одним способом (см. журнал плагина — там записана каждая попытка)', 'vl-account' );
+		}
+
+		// 4. Снимок базы CRM: все карточки с этим номером, от свежей к старой.
+		$rows  = VL_Account_RetailCRM_Directory::rows_by_phone( $normalized );
+		$cards = array();
+
+		foreach ( $rows as $row ) {
+			$cards[] = sprintf(
+				'клиент %d (заведён %s), externalId %s, аккаунт %d, %s',
+				(int) $row['crm_id'],
+				( empty( $row['crm_created'] ) || 0 === strpos( (string) $row['crm_created'], '0000' ) ) ? '—' : $row['crm_created'],
+				! empty( $row['external_id'] ) ? (int) $row['external_id'] : '—',
+				(int) $row['user_id'],
+				$row['email'] ? $row['email'] : '—'
+			);
+		}
+
+		$report[ __( 'В снимке базы CRM', 'vl-account' ) ] = $cards
+			? implode( '; ', $cards )
 			: __( 'нет записи', 'vl-account' );
 
-		if ( ! VL_Account_RetailCRM::enabled() ) {
+		// 5. Что плагин соберёт из этих карточек и куда пустит покупателя.
+		$combined = VL_Account_RetailCRM_Directory::combine( $rows );
+
+		if ( $combined ) {
+			$candidates = VL_Account_Identity::crm_candidates( $combined );
+
+			$report[ __( 'Склеенная карточка', 'vl-account' ) ] = sprintf(
+				'%s %s, %s, город %s, карточек: %d',
+				$combined['first_name'],
+				$combined['last_name'],
+				$combined['email'] ? $combined['email'] : '—',
+				$combined['city'] ? $combined['city'] : '—',
+				count( isset( $combined['crm_ids'] ) ? $combined['crm_ids'] : array() )
+			);
+
+			$chosen = VL_Account_Identity::pick_account( $candidates, $normalized );
+
+			$report[ __( 'Аккаунты-кандидаты', 'vl-account' ) ] = $candidates
+				? implode( ', ', $candidates ) . sprintf( ' → выбран %s', $chosen ? '#' . $chosen : __( 'ни один', 'vl-account' ) )
+				: __( 'нет', 'vl-account' );
+		}
+
+		if ( ! $api ) {
 			$report[ __( 'Связь с CRM', 'vl-account' ) ] = __( 'выключена или не настроена — дальше проверять нечего', 'vl-account' );
 
 			return $report;
 		}
 
-		$api = VL_Account_RetailCRM::api();
+		// 6. Участие в программе лояльности по номеру: счетов может быть несколько.
+		$accounts = VL_Account_RetailCRM_Directory::loyalty_accounts_by_phone( $api, $normalized );
+		$account  = VL_Account_RetailCRM::pick_loyalty( $accounts );
+		$lines    = array();
 
-		// 4. Поиск клиента в CRM всеми способами.
-		$customer = VL_Account_RetailCRM_Directory::search_everywhere( $api, $normalized );
-
-		if ( $customer ) {
-			$report[ __( 'Клиент в CRM', 'vl-account' ) ] = sprintf(
-				'id %d, externalId %s, %s %s, %s',
-				isset( $customer['id'] ) ? (int) $customer['id'] : 0,
-				! empty( $customer['externalId'] ) ? (int) $customer['externalId'] : '—',
-				isset( $customer['firstName'] ) ? $customer['firstName'] : '',
-				isset( $customer['lastName'] ) ? $customer['lastName'] : '',
-				isset( $customer['email'] ) ? $customer['email'] : '—'
+		foreach ( $accounts as $item ) {
+			$lines[] = sprintf(
+				'id %d, %s, баллов: %s, уровень: %s%s',
+				isset( $item['id'] ) ? (int) $item['id'] : 0,
+				empty( $item['active'] ) ? __( 'не активировано', 'vl-account' ) : __( 'активно', 'vl-account' ),
+				isset( $item['amount'] ) ? (string) $item['amount'] : '0',
+				isset( $item['level']['name'] ) ? $item['level']['name'] : '—',
+				( $account && isset( $account['id'], $item['id'] ) && $account['id'] === $item['id'] ) ? ' ← берём этот' : ''
 			);
-		} else {
-			$report[ __( 'Клиент в CRM', 'vl-account' ) ] = __( 'не найден ни одним способом (см. журнал плагина — там записана каждая попытка)', 'vl-account' );
 		}
 
-		// 5. Участие в программе лояльности по номеру.
-		$account = VL_Account_RetailCRM_Directory::loyalty_account_by_phone( $api, $normalized );
+		$report[ __( 'Участие в программе лояльности', 'vl-account' ) ] = $lines
+			? implode( '; ', $lines )
+			: __( 'по номеру не найдено', 'vl-account' );
 
-		if ( $account ) {
-			$report[ __( 'Участие в программе лояльности', 'vl-account' ) ] = sprintf(
-				'id %d, %s, баллов: %s, уровень: %s',
-				isset( $account['id'] ) ? (int) $account['id'] : 0,
-				empty( $account['active'] ) ? __( 'не активировано', 'vl-account' ) : __( 'активно', 'vl-account' ),
-				isset( $account['amount'] ) ? (string) $account['amount'] : '0',
-				isset( $account['level']['name'] ) ? $account['level']['name'] : '—'
-			);
-		} else {
-			$report[ __( 'Участие в программе лояльности', 'vl-account' ) ] = __( 'по номеру не найдено', 'vl-account' );
+		// 7. Что увидит кабинет. Аккаунт мог найтись только сейчас — после того,
+		// как карточки CRM попали в снимок; строку отчёта тогда переписываем.
+		if ( ! $user ) {
+			$user = VL_Account_User::get_by_phone( $normalized );
+
+			if ( $user ) {
+				$report[ __( 'Аккаунт на сайте', 'vl-account' ) ] = sprintf(
+					'#%d — %s (%s) — найден по карточке CRM',
+					$user->ID,
+					$user->user_login,
+					$user->user_email
+				);
+			}
 		}
 
-		// 6. Что увидит кабинет.
 		if ( $user ) {
 			VL_Account_RetailCRM::flush( $user->ID );
 			$state = VL_Account_RetailCRM::account( $user->ID, true );

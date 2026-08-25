@@ -315,6 +315,9 @@ class Fake_Directory {
 	public static $matched = 0;
 	public static function find_by_phone( $phone ) { return self::$row; }
 	public static function match_row( $row ) { ++self::$matched; return 'matched'; }
+	public static function rows_by_phone( $phone ) { return self::$row ? array( self::$row ) : array(); }
+	public static function crm_ids_by_phone( $phone ) { return self::$row ? array( (int) self::$row['crm_id'] ) : array(); }
+	public static function flush_cache() {}
 }
 
 class_alias( 'Fake_Directory', 'VL_Account_RetailCRM_Directory' );
@@ -381,18 +384,80 @@ Fake_Directory::$row = array(
 
 check( 'админа по базе CRM не отдаём', false === VL_Account_Identity::find_in_crm( '79261234567' ) );
 
-// Конфликт в снимке.
+echo "\n== 8.1. Дубли карточек CRM: конфликт разбирается, а не отбрасывается ==\n";
+
+// Две карточки на один телефон: одна привязана к пустышке от входа по SMS,
+// другая — к старому живому аккаунту. Пускать надо в живой.
+reset_world();
+make_user( 58, 'old-client@example.com' );
+make_user( 59, '79261234567@phone.test' );
+
 Fake_Directory::$row = array(
 	'id'          => 10,
 	'crm_id'      => 703,
-	'external_id' => 0,
+	'external_id' => 59,
 	'phone'       => '79261234567',
-	'email'       => '',
-	'user_id'     => 0,
+	'email'       => 'old-client@example.com',
+	'user_id'     => 59,
+	'user_ids'    => array( 59, 58 ),
+	'crm_ids'     => array( 703, 704 ),
+	'first_name'  => 'Александр',
 	'status'      => 'conflict',
 );
 
-check( 'конфликт в снимке — не выбираем', false === VL_Account_Identity::find_in_crm( '79261234567' ) );
+$row = VL_Account_Identity::find_in_crm( '79261234567' );
+
+check( 'конфликт: выбран живой аккаунт', $row && 58 === (int) $row['user_id'], print_r( $row, true ) );
+check( 'данные склеенной карточки на месте', $row && 'Александр' === $row['first_name'] );
+
+// Живых аккаунтов нет — берём самую старую пустышку, остальные к ней приклеятся.
+reset_world();
+make_user( 60, '79261234567@phone.test' );
+make_user( 61, '79261234567-2@phone.test' );
+
+Fake_Directory::$row = array(
+	'id'          => 11,
+	'crm_id'      => 705,
+	'external_id' => 61,
+	'phone'       => '79261234567',
+	'email'       => '',
+	'user_id'     => 61,
+	'user_ids'    => array( 61, 60 ),
+	'status'      => 'conflict',
+);
+
+$row = VL_Account_Identity::find_in_crm( '79261234567' );
+
+check( 'без живых берём самую старую пустышку', $row && 60 === (int) $row['user_id'], print_r( $row, true ) );
+
+// Два живых аккаунта: выигрывает тот, где заказов больше, случай — в журнал.
+reset_world();
+make_user( 62, 'first@example.com' );
+make_user( 63, 'second@example.com' );
+
+$GLOBALS['orders'][] = new WC_Order( 71, 63, '+7 926 123-45-67', 'second@example.com' );
+$GLOBALS['orders'][] = new WC_Order( 72, 63, '+7 926 123-45-67', 'second@example.com' );
+
+Fake_Directory::$row = array(
+	'id'          => 12,
+	'crm_id'      => 706,
+	'external_id' => 62,
+	'phone'       => '79261234567',
+	'email'       => '',
+	'user_id'     => 62,
+	'user_ids'    => array( 62, 63 ),
+	'status'      => 'conflict',
+);
+
+$row      = VL_Account_Identity::find_in_crm( '79261234567' );
+$conflict = false;
+
+foreach ( $GLOBALS['log'] as $entry ) {
+	if ( false !== mb_strpos( $entry[0], 'conflict' ) ) { $conflict = true; }
+}
+
+check( 'из двух живых берём аккаунт с заказами', $row && 63 === (int) $row['user_id'], print_r( $row, true ) );
+check( 'выбор записан в журнал', $conflict, print_r( $GLOBALS['log'], true ) );
 
 VL_Account_Settings::update( array( 'identity_crm' => 0, 'identity_orders' => 1 ) );
 

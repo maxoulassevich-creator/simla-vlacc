@@ -189,21 +189,64 @@ echo "\n== 9.1. Карточка CRM, заведённая руками ==\n";
 
 // Такая карточка не имеет externalId, по ID пользователя сайта не находится.
 class Fake_Directory {
-	public static $row = false;
+	public static $row  = false;
+	public static $rows = array();
+
+	/** Карточки этого телефона: либо заданный список, либо одна строка. */
+	protected static function rows() {
+		if ( self::$rows ) {
+			return self::$rows;
+		}
+
+		return self::$row ? array( self::$row ) : array();
+	}
+
 	public static function find_by_phone( $phone ) { return self::$row; }
+	public static function rows_by_phone( $phone ) { return self::rows(); }
 	public static function set_external_id( $crm_id, $user_id ) { $GLOBALS['log'][] = array( 'directory_link', $crm_id, $user_id ); }
 	public static function flush_cache() {}
 	public static function store( $customer ) { return 1; }
 
+	public static function crm_ids_by_phone( $phone ) {
+		$ids = array();
+
+		foreach ( self::rows() as $row ) {
+			$ids[] = (int) $row['crm_id'];
+		}
+
+		return array_values( array_unique( array_filter( $ids ) ) );
+	}
+
 	/** Те же правила, что в настоящем справочнике. */
+	public static function row_for_user( $phone, $user_id ) {
+		$free = false;
+
+		foreach ( self::rows() as $row ) {
+			if ( (int) ( $row['external_id'] ?? 0 ) === (int) $user_id ) {
+				return $row;
+			}
+
+			if ( ! $free && empty( $row['external_id'] ) ) {
+				$free = $row;
+			}
+		}
+
+		return $free;
+	}
+
 	public static function loyalty_account_by_phone( $api, $phone ) {
+		return VL_Account_RetailCRM::pick_loyalty( self::loyalty_accounts_by_phone( $api, $phone ) );
+	}
+
+	public static function loyalty_accounts_by_phone( $api, $phone ) {
 		$response = $api->getLoyaltyAccountList( array( 'phoneNumber' => '+' . $phone ), 20, 1 );
 
 		if ( ! $response instanceof WC_Retailcrm_Response || ! $response->isSuccessful() ) {
-			return false;
+			return array();
 		}
 
 		$accounts = $response->offsetExists( 'loyaltyAccounts' ) ? (array) $response['loyaltyAccounts'] : array();
+		$found    = array();
 
 		foreach ( $accounts as $account ) {
 			$number = $account['phoneNumber'] ?? '';
@@ -212,10 +255,10 @@ class Fake_Directory {
 				continue;
 			}
 
-			return (array) $account;
+			$found[] = (array) $account;
 		}
 
-		return false;
+		return $found;
 	}
 
 	public static function customer_id_from_account( $account ) {
@@ -275,17 +318,29 @@ Fake_Directory::$row = array(
 
 check( 'чужую карточку не забираем', 0 === VL_Account_RetailCRM::crm_customer_id( 3 ) );
 
-// Конфликт по телефону — тоже мимо.
+// Две карточки на один телефон: берём свободную, чужую не трогаем.
 VL_Account_RetailCRM::flush_all();
-Fake_Directory::$row = array(
+Fake_Directory::$row  = array(
 	'crm_id'      => 902,
 	'external_id' => 0,
 	'phone'       => '79261234567',
 	'email'       => '',
 	'status'      => 'conflict',
 );
+Fake_Directory::$rows = array(
+	array(
+		'crm_id'      => 904,
+		'external_id' => 777,
+		'phone'       => '79261234567',
+		'email'       => 'other@example.com',
+		'status'      => 'conflict',
+	),
+	Fake_Directory::$row,
+);
 
-check( 'конфликт по телефону — не привязываем', 0 === VL_Account_RetailCRM::crm_customer_id( 3 ) );
+check( 'из двух карточек берём свободную', 902 === VL_Account_RetailCRM::crm_customer_id( 3 ) );
+
+Fake_Directory::$rows = array();
 
 // Настройка выключает привязку.
 VL_Account_Settings::update( array( 'crm_link_by_phone' => 0 ) );

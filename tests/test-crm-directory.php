@@ -63,7 +63,7 @@ class Fake_WPDB {
 	}
 
 	public function get_results( $sql, $out = null ) {
-		if ( preg_match( '/WHERE phone = (\S+) ORDER/', $sql, $m ) ) {
+		if ( preg_match( '/WHERE phone = (\S+) (?:ORDER|LIMIT)/', $sql, $m ) ) {
 			$found = array();
 
 			foreach ( $this->rows as $row ) {

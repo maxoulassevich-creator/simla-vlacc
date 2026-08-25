@@ -26,7 +26,7 @@ class VL_Account_RetailCRM_Directory {
 	/**
 	 * Версия схемы таблицы.
 	 */
-	const DB_VERSION = '1';
+	const DB_VERSION = '2';
 
 	/**
 	 * Опция с версией схемы.
@@ -142,6 +142,7 @@ class VL_Account_RetailCRM_Directory {
 			user_id bigint(20) unsigned NOT NULL DEFAULT 0,
 			status varchar(20) NOT NULL DEFAULT 'new',
 			note varchar(255) NOT NULL DEFAULT '',
+			crm_created datetime NOT NULL DEFAULT '0000-00-00 00:00:00',
 			updated datetime NOT NULL DEFAULT '0000-00-00 00:00:00',
 			PRIMARY KEY  (id),
 			UNIQUE KEY crm_phone (crm_id,phone),
@@ -413,6 +414,9 @@ class VL_Account_RetailCRM_Directory {
 			'last_name'   => isset( $customer['lastName'] ) ? sanitize_text_field( $customer['lastName'] ) : '',
 			'city'        => isset( $customer['address']['city'] ) ? sanitize_text_field( $customer['address']['city'] ) : '',
 			'subscribed'  => ! empty( $customer['subscribed'] ) ? 1 : 0,
+			// Дата заведения карточки в CRM: по ней видно, какая из карточек
+			// одного и того же человека свежее.
+			'crm_created' => self::crm_date( isset( $customer['createdAt'] ) ? $customer['createdAt'] : '' ),
 			'updated'     => current_time( 'mysql' ),
 		);
 
@@ -617,30 +621,175 @@ class VL_Account_RetailCRM_Directory {
 	 * @return array|false
 	 */
 	protected static function from_directory( $phone ) {
-		global $wpdb;
+		return self::combine( self::rows_by_phone( $phone ) );
+	}
 
-		if ( ! VL_Account_Settings::get( 'crm_directory', 1 ) || ! self::ready() ) {
-			return false;
-		}
-
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared
-		$rows = $wpdb->get_results(
-			$wpdb->prepare( 'SELECT * FROM ' . self::table() . ' WHERE phone = %s ORDER BY user_id DESC, id ASC LIMIT 5', $phone ),
-			ARRAY_A
-		);
+	/**
+	 * Склеить карточки одного человека в одну.
+	 *
+	 * У покупателя в CRM нередко две карточки: старая (заказы, почта) и новая,
+	 * заведённая менеджером или программой лояльности. Ни одна из них не полная,
+	 * поэтому за основу берём самую свежую, а пустые поля дополняем из старых.
+	 * Список всех найденных карточек и аккаунтов оставляем в строке: по нему
+	 * VL_Account_Identity решает, в какой аккаунт пускать.
+	 *
+	 * @param array $rows Строки снимка с одним телефоном.
+	 * @return array|false
+	 */
+	public static function combine( $rows ) {
+		$rows = self::sort_rows( $rows );
 
 		if ( ! $rows ) {
 			return false;
 		}
 
-		// Телефон разошёлся по разным аккаунтам — молча выбирать нельзя.
-		$users = array_unique( array_filter( wp_list_pluck( $rows, 'user_id' ) ) );
+		$best   = $rows[0];
+		$fields = array( 'email', 'first_name', 'last_name', 'city', 'external_id', 'user_id' );
 
-		if ( count( $users ) > 1 ) {
-			return array_merge( $rows[0], array( 'status' => 'conflict' ) );
+		foreach ( $rows as $row ) {
+			foreach ( $fields as $field ) {
+				if ( empty( $best[ $field ] ) && ! empty( $row[ $field ] ) ) {
+					$best[ $field ] = $row[ $field ];
+				}
+			}
+
+			// Согласие на рассылку достаточно дать один раз в любой карточке.
+			if ( ! empty( $row['subscribed'] ) ) {
+				$best['subscribed'] = 1;
+			}
 		}
 
-		return $rows[0];
+		$best['crm_ids']  = array_values( array_unique( array_filter( array_map( 'intval', wp_list_pluck( $rows, 'crm_id' ) ) ) ) );
+		$best['user_ids'] = array_values( array_unique( array_filter( array_map( 'intval', wp_list_pluck( $rows, 'user_id' ) ) ) ) );
+
+		// Телефон разошёлся по разным аккаунтам — выбор делает
+		// VL_Account_Identity: там видно, какие из аккаунтов живые.
+		if ( count( $best['user_ids'] ) > 1 ) {
+			$best['status'] = 'conflict';
+		}
+
+		return $best;
+	}
+
+	/**
+	 * Отсортировать карточки от самой свежей к самой старой.
+	 *
+	 * Свежесть — дата заведения в CRM; если её нет (снимок сделан старой
+	 * версией плагина), сравниваем id: он в CRM растёт.
+	 *
+	 * @param array $rows Строки снимка.
+	 * @return array
+	 */
+	public static function sort_rows( $rows ) {
+		$rows = array_values( array_filter( (array) $rows, 'is_array' ) );
+
+		usort(
+			$rows,
+			static function ( $a, $b ) {
+				$a_date = isset( $a['crm_created'] ) ? (string) $a['crm_created'] : '';
+				$b_date = isset( $b['crm_created'] ) ? (string) $b['crm_created'] : '';
+
+				$a_date = ( '' === $a_date || 0 === strpos( $a_date, '0000' ) ) ? '' : $a_date;
+				$b_date = ( '' === $b_date || 0 === strpos( $b_date, '0000' ) ) ? '' : $b_date;
+
+				if ( $a_date !== $b_date ) {
+					return strcmp( $b_date, $a_date );
+				}
+
+				return (int) $b['crm_id'] - (int) $a['crm_id'];
+			}
+		);
+
+		return $rows;
+	}
+
+	/**
+	 * Все строки снимка с этим телефоном.
+	 *
+	 * @param string $phone Нормализованный номер.
+	 * @return array
+	 */
+	public static function rows_by_phone( $phone ) {
+		global $wpdb;
+
+		$phone = VL_Account_Phone::normalize( $phone );
+
+		if ( '' === $phone || ! VL_Account_Settings::get( 'crm_directory', 1 ) || ! self::ready() ) {
+			return array();
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared
+		$rows = (array) $wpdb->get_results(
+			$wpdb->prepare( 'SELECT * FROM ' . self::table() . ' WHERE phone = %s LIMIT 20', $phone ),
+			ARRAY_A
+		);
+
+		return self::sort_rows( $rows );
+	}
+
+	/**
+	 * Карточки CRM с этим телефоном, от свежей к старой.
+	 *
+	 * @param string $phone Номер.
+	 * @return array ID покупателей в CRM.
+	 */
+	public static function crm_ids_by_phone( $phone ) {
+		$ids = array();
+
+		foreach ( self::rows_by_phone( $phone ) as $row ) {
+			$crm_id = (int) $row['crm_id'];
+
+			if ( $crm_id ) {
+				$ids[ $crm_id ] = $crm_id;
+			}
+		}
+
+		return array_values( $ids );
+	}
+
+	/**
+	 * Строка снимка, подходящая конкретному аккаунту.
+	 *
+	 * При дублях в CRM берём карточку этого аккаунта, а если такой нет —
+	 * самую свежую свободную (без чужого externalId).
+	 *
+	 * @param string $phone   Нормализованный номер.
+	 * @param int    $user_id Аккаунт сайта.
+	 * @return array|false
+	 */
+	public static function row_for_user( $phone, $user_id ) {
+		$rows = self::rows_by_phone( $phone );
+		$free = false;
+
+		foreach ( $rows as $row ) {
+			if ( (int) $row['external_id'] === (int) $user_id ) {
+				return $row;
+			}
+
+			if ( ! $free && empty( $row['external_id'] ) ) {
+				$free = $row;
+			}
+		}
+
+		return $free;
+	}
+
+	/**
+	 * Дата CRM в формате MySQL.
+	 *
+	 * @param string $value Дата из ответа CRM.
+	 * @return string
+	 */
+	protected static function crm_date( $value ) {
+		$value = trim( (string) $value );
+
+		if ( '' === $value ) {
+			return '0000-00-00 00:00:00';
+		}
+
+		$time = strtotime( $value );
+
+		return $time ? gmdate( 'Y-m-d H:i:s', $time ) : '0000-00-00 00:00:00';
 	}
 
 	/**
@@ -660,23 +809,78 @@ class VL_Account_RetailCRM_Directory {
 			return false;
 		}
 
-		$customer = self::search_everywhere( $api, $phone );
+		$customers = self::collect_from_api( $api, $phone );
 
-		if ( ! $customer ) {
+		if ( ! $customers ) {
 			return false;
 		}
 
-		self::store( $customer );
+		foreach ( $customers as $customer ) {
+			self::store( $customer );
+		}
 
-		$row = self::from_directory( $phone );
+		$rows = self::rows_by_phone( $phone );
 
-		if ( $row ) {
-			self::match_row( $row );
+		if ( $rows ) {
+			foreach ( $rows as $row ) {
+				self::match_row( $row );
+			}
 
 			return self::from_directory( $phone );
 		}
 
-		// Справочник выключен — отдаём данные как есть.
+		// Справочник выключен — склеиваем то, что пришло из API.
+		$live = array();
+
+		foreach ( $customers as $customer ) {
+			$live[] = self::row_from_customer( $customer, $phone );
+		}
+
+		return self::combine( $live );
+	}
+
+	/**
+	 * Собрать все карточки CRM с этим телефоном.
+	 *
+	 * Общий поиск отдаёт одну карточку — ту, что нашлась первой. Дубли этим
+	 * не ловятся, а именно на дубле обычно и лежат баллы: программа лояльности
+	 * заводит покупателю свою карточку. Поэтому вторым шагом спрашиваем счёт
+	 * программы по номеру — это один запрос, зато карточка с баллами не теряется.
+	 *
+	 * @param object $api   Клиент API.
+	 * @param string $phone Нормализованный номер.
+	 * @return array Карточки CRM.
+	 */
+	public static function collect_from_api( $api, $phone ) {
+		$customers = array();
+		$found     = self::search_everywhere( $api, $phone );
+
+		if ( $found && ! empty( $found['id'] ) ) {
+			$customers[ (int) $found['id'] ] = $found;
+		}
+
+		$account = self::loyalty_account_by_phone( $api, $phone );
+		$crm_id  = $account ? self::customer_id_from_account( $account ) : 0;
+
+		if ( $crm_id && ! isset( $customers[ $crm_id ] ) ) {
+			$customer = self::fetch_customer( $api, $crm_id );
+
+			if ( $customer ) {
+				$customers[ $crm_id ] = $customer;
+			}
+		}
+
+		return array_values( $customers );
+	}
+
+	/**
+	 * Карточка CRM в виде строки справочника.
+	 *
+	 * @param array  $customer Клиент CRM.
+	 * @param string $phone    Нормализованный номер.
+	 * @return array
+	 */
+	protected static function row_from_customer( $customer, $phone ) {
 		return array(
 			'crm_id'      => isset( $customer['id'] ) ? (int) $customer['id'] : 0,
 			'external_id' => isset( $customer['externalId'] ) ? (int) $customer['externalId'] : 0,
@@ -686,6 +890,7 @@ class VL_Account_RetailCRM_Directory {
 			'last_name'   => isset( $customer['lastName'] ) ? $customer['lastName'] : '',
 			'city'        => isset( $customer['address']['city'] ) ? $customer['address']['city'] : '',
 			'subscribed'  => ! empty( $customer['subscribed'] ) ? 1 : 0,
+			'crm_created' => self::crm_date( isset( $customer['createdAt'] ) ? $customer['createdAt'] : '' ),
 			'user_id'     => 0,
 			'status'      => 'live',
 			'note'        => 'api',
@@ -896,14 +1101,36 @@ class VL_Account_RetailCRM_Directory {
 	/**
 	 * Участие в программе лояльности по номеру телефона.
 	 *
+	 * Если счетов несколько (дубли карточек в CRM), отдаём тот, где настоящие
+	 * баллы покупателя, — правило выбора в VL_Account_RetailCRM::pick_loyalty().
+	 *
 	 * @param object $api   Клиент API.
 	 * @param string $phone Нормализованный номер.
 	 * @return array|false
 	 */
 	public static function loyalty_account_by_phone( $api, $phone ) {
-		if ( ! is_callable( array( $api, 'getLoyaltyAccountList' ) ) ) {
+		$accounts = self::loyalty_accounts_by_phone( $api, $phone );
+
+		if ( ! $accounts ) {
 			return false;
 		}
+
+		return VL_Account_RetailCRM::pick_loyalty( $accounts );
+	}
+
+	/**
+	 * Все счета программы лояльности с этим номером.
+	 *
+	 * @param object $api   Клиент API.
+	 * @param string $phone Нормализованный номер.
+	 * @return array
+	 */
+	public static function loyalty_accounts_by_phone( $api, $phone ) {
+		if ( ! is_callable( array( $api, 'getLoyaltyAccountList' ) ) ) {
+			return array();
+		}
+
+		$found = array();
 
 		foreach ( array( '+' . $phone, $phone ) as $term ) {
 			$response = $api->getLoyaltyAccountList( array( 'phoneNumber' => $term ), 20, 1 );
@@ -922,11 +1149,17 @@ class VL_Account_RetailCRM_Directory {
 					continue;
 				}
 
-				return (array) $account;
+				$key           = isset( $account['id'] ) ? (int) $account['id'] : count( $found );
+				$found[ $key ] = (array) $account;
+			}
+
+			// По первому же удачному написанию номера список полный.
+			if ( $found ) {
+				break;
 			}
 		}
 
-		return false;
+		return array_values( $found );
 	}
 
 	/**

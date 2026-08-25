@@ -324,34 +324,34 @@ class VL_Account_RetailCRM {
 	}
 
 	/**
-	 * Участие в программе лояльности по телефону покупателя.
+	 * Счета программы лояльности по телефону покупателя.
 	 *
 	 * Работает даже тогда, когда карточка клиента в CRM ещё не связана
 	 * с аккаунтом сайта: номер у счёта программы свой. Найденную карточку
 	 * заодно привязываем, чтобы дальше всё шло штатным путём.
 	 *
 	 * @param int $user_id Пользователь.
-	 * @return array|false Запись об участии.
+	 * @return array Записи об участии (может быть несколько при дублях карточек).
 	 */
 	public static function loyalty_by_phone( $user_id ) {
 		if ( ! class_exists( 'VL_Account_RetailCRM_Directory' ) || ! VL_Account_Settings::get( 'crm_link_by_phone', 1 ) ) {
-			return false;
+			return array();
 		}
 
 		$api   = self::api();
 		$phone = VL_Account_User::get_phone( $user_id );
 
 		if ( ! $api || '' === $phone ) {
-			return false;
+			return array();
 		}
 
-		$account = VL_Account_RetailCRM_Directory::loyalty_account_by_phone( $api, $phone );
+		$accounts = VL_Account_RetailCRM_Directory::loyalty_accounts_by_phone( $api, $phone );
 
-		if ( ! $account ) {
-			return false;
+		if ( ! $accounts ) {
+			return array();
 		}
 
-		$crm_id = VL_Account_RetailCRM_Directory::customer_id_from_account( $account );
+		$crm_id = VL_Account_RetailCRM_Directory::customer_id_from_account( self::pick_loyalty( $accounts ) );
 
 		if ( $crm_id && empty( self::$crm_ids[ $user_id ] ) ) {
 			// Карточку CRM привязываем к аккаунту, но только свободную.
@@ -375,10 +375,92 @@ class VL_Account_RetailCRM {
 			array(
 				'user_id' => $user_id,
 				'crm_id'  => $crm_id,
+				'счетов'  => count( $accounts ),
 			)
 		);
 
-		return $account;
+		return $accounts;
+	}
+
+	/**
+	 * Размер приветственных баллов.
+	 *
+	 * Нужен, чтобы отличить счёт с настоящими баллами покупателя от счёта,
+	 * на котором лежит только приветственное начисление.
+	 *
+	 * @return float
+	 */
+	public static function welcome_amount() {
+		return (float) apply_filters( 'vlacc_crm_welcome_bonus', (float) VL_Account_Settings::get( 'crm_welcome_bonus', 1000 ) );
+	}
+
+	/**
+	 * Выбрать счёт программы лояльности, если их несколько.
+	 *
+	 * При дублях карточек в CRM у человека оказывается два счёта: на одном —
+	 * приветственная тысяча, на другом — настоящий баланс, начисленный
+	 * менеджером или заказами. Показывать нужно настоящий, в любую сторону
+	 * от приветственной суммы. Порядок предпочтений:
+	 *
+	 *   1. счёт не пустой (есть баллы или заказы);
+	 *   2. сумма отличается от приветственной;
+	 *   3. участие активно;
+	 *   4. больше сумма заказов, затем больше баллов.
+	 *
+	 * @param array $accounts Счета из CRM.
+	 * @return array|false
+	 */
+	public static function pick_loyalty( $accounts ) {
+		$accounts = array_values( array_filter( (array) $accounts, 'is_array' ) );
+
+		if ( ! $accounts ) {
+			return false;
+		}
+
+		$welcome = self::welcome_amount();
+		$best    = false;
+		$rank    = null;
+
+		foreach ( $accounts as $account ) {
+			$amount     = isset( $account['amount'] ) ? (float) $account['amount'] : 0.0;
+			$orders_sum = isset( $account['ordersSum'] ) ? (float) $account['ordersSum'] : 0.0;
+
+			$weight = array(
+				( $amount > 0 || $orders_sum > 0 ) ? 1 : 0,
+				( $welcome > 0 && abs( $amount - $welcome ) < 0.01 ) ? 0 : 1,
+				empty( $account['active'] ) ? 0 : 1,
+				$orders_sum,
+				$amount,
+			);
+
+			if ( false === $best || self::weight_beats( $weight, $rank ) ) {
+				$best = $account;
+				$rank = $weight;
+			}
+		}
+
+		return $best;
+	}
+
+	/**
+	 * Сравнить веса счетов по порядку значимости.
+	 *
+	 * @param array $weight  Кандидат.
+	 * @param array $current Текущий лучший.
+	 * @return bool
+	 */
+	protected static function weight_beats( $weight, $current ) {
+		foreach ( $weight as $index => $value ) {
+			$other = isset( $current[ $index ] ) ? $current[ $index ] : 0;
+
+			if ( $value === $other ) {
+				continue;
+			}
+
+			return $value > $other;
+		}
+
+		return false;
 	}
 
 	/**
@@ -398,14 +480,17 @@ class VL_Account_RetailCRM {
 			return 0;
 		}
 
-		$row = VL_Account_RetailCRM_Directory::find_by_phone( $phone );
+		// Сначала спрашиваем CRM (снимок мог устареть), потом выбираем из
+		// карточек этого телефона ту, что относится к нашему аккаунту.
+		VL_Account_RetailCRM_Directory::find_by_phone( $phone );
 
-		if ( ! $row || empty( $row['crm_id'] ) ) {
-			return 0;
+		$row = VL_Account_RetailCRM_Directory::row_for_user( $phone, $user_id );
+
+		if ( ! $row ) {
+			$row = VL_Account_RetailCRM_Directory::find_by_phone( $phone );
 		}
 
-		// Телефон сошёлся на нескольких клиентах — молча выбирать нельзя.
-		if ( isset( $row['status'] ) && 'conflict' === $row['status'] ) {
+		if ( ! $row || empty( $row['crm_id'] ) ) {
 			return 0;
 		}
 
@@ -429,6 +514,58 @@ class VL_Account_RetailCRM {
 		);
 
 		return $crm_id;
+	}
+
+	/**
+	 * Передать карточку CRM объединённого аккаунта выжившему.
+	 *
+	 * После слияния дублей аккаунт-источник удаляется, и карточка CRM с его
+	 * externalId остаётся ничьей — вместе с заказами и баллами. Если у
+	 * выжившего аккаунта своей карточки нет, отдаём осиротевшую ему.
+	 *
+	 * @param int $from_id Погашенный аккаунт.
+	 * @param int $into_id Выживший аккаунт.
+	 * @return bool
+	 */
+	public static function rebind_card( $from_id, $into_id ) {
+		if ( ! class_exists( 'VL_Account_RetailCRM_Directory' ) || ! self::enabled() ) {
+			return false;
+		}
+
+		if ( ! VL_Account_Settings::get( 'crm_link_by_phone', 1 ) ) {
+			return false;
+		}
+
+		$phone = VL_Account_User::get_phone( $into_id );
+
+		if ( '' === $phone ) {
+			$phone = VL_Account_User::get_phone( $from_id );
+		}
+
+		if ( '' === $phone ) {
+			return false;
+		}
+
+		$orphan = 0;
+
+		foreach ( VL_Account_RetailCRM_Directory::rows_by_phone( $phone ) as $row ) {
+			$external = (int) $row['external_id'];
+
+			// У выжившего своя карточка — вторую к нему не привязать.
+			if ( $external === (int) $into_id ) {
+				return false;
+			}
+
+			if ( $external === (int) $from_id && ! $orphan ) {
+				$orphan = (int) $row['crm_id'];
+			}
+		}
+
+		if ( ! $orphan ) {
+			return false;
+		}
+
+		return self::assign_external_id( $orphan, $into_id );
 	}
 
 	/**
@@ -598,34 +735,14 @@ class VL_Account_RetailCRM {
 			$accounts = $response->offsetExists( 'loyaltyAccounts' ) ? (array) $response['loyaltyAccounts'] : array();
 		}
 
-		// Покупателя не удалось сопоставить с карточкой CRM (или у карточки
-		// нет участия) — ищем участие прямо по телефону: баллы в CRM живут
-		// на счёте программы, и номер там свой.
-		if ( ! $accounts ) {
-			$found = self::loyalty_by_phone( $user_id );
-
-			if ( $found ) {
-				$accounts = array( $found );
-			}
+		// Ищем участие ещё и по телефону, если карточки с покупателем найти не
+		// удалось или их у него в CRM несколько: баллы живут на счёте программы,
+		// и на дубле карточки может лежать как раз настоящий баланс.
+		if ( ! $accounts || self::has_duplicate_cards( $user_id ) ) {
+			$accounts = self::merge_accounts( $accounts, self::loyalty_by_phone( $user_id ) );
 		}
 
-		if ( ! $accounts ) {
-			return self::empty_account( 'none' );
-		}
-
-		// Активное участие приоритетнее: у покупателя может быть несколько записей.
-		$raw = null;
-
-		foreach ( $accounts as $candidate ) {
-			if ( ! empty( $candidate['active'] ) ) {
-				$raw = $candidate;
-				break;
-			}
-
-			if ( null === $raw ) {
-				$raw = $candidate;
-			}
-		}
+		$raw = self::pick_loyalty( $accounts );
 
 		if ( ! $raw ) {
 			return self::empty_account( 'none' );
@@ -663,6 +780,48 @@ class VL_Account_RetailCRM {
 		}
 
 		return $account;
+	}
+
+	/**
+	 * У покупателя в CRM больше одной карточки с его телефоном.
+	 *
+	 * @param int $user_id Пользователь.
+	 * @return bool
+	 */
+	protected static function has_duplicate_cards( $user_id ) {
+		if ( ! class_exists( 'VL_Account_RetailCRM_Directory' ) ) {
+			return false;
+		}
+
+		$phone = VL_Account_User::get_phone( $user_id );
+
+		if ( '' === $phone ) {
+			return false;
+		}
+
+		return count( VL_Account_RetailCRM_Directory::crm_ids_by_phone( $phone ) ) > 1;
+	}
+
+	/**
+	 * Соединить списки счетов, отбрасывая повторы.
+	 *
+	 * @param array $first  Первый список.
+	 * @param array $second Второй список.
+	 * @return array
+	 */
+	protected static function merge_accounts( $first, $second ) {
+		$all = array();
+
+		foreach ( array_merge( (array) $first, (array) $second ) as $account ) {
+			if ( ! is_array( $account ) ) {
+				continue;
+			}
+
+			$key         = isset( $account['id'] ) ? 'id-' . (int) $account['id'] : 'n-' . count( $all );
+			$all[ $key ] = $account;
+		}
+
+		return array_values( $all );
 	}
 
 	/**

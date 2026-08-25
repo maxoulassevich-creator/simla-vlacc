@@ -63,6 +63,13 @@ class VL_Account_Identity {
 	private static $search_cache = array();
 
 	/**
+	 * Кэш разбора карточек CRM в пределах запроса.
+	 *
+	 * @var array
+	 */
+	private static $crm_cache = array();
+
+	/**
 	 * Получить экземпляр.
 	 *
 	 * @return VL_Account_Identity
@@ -372,6 +379,7 @@ class VL_Account_Identity {
 	 */
 	public static function flush_cache() {
 		self::$search_cache = array();
+		self::$crm_cache    = array();
 	}
 
 	/**
@@ -520,22 +528,18 @@ class VL_Account_Identity {
 			return false;
 		}
 
+		// За один вход функцию спрашивают несколько раз (поиск аккаунта, перенос
+		// данных, слияние дублей) — разбор конфликта считаем один раз, иначе он
+		// каждый раз попадал бы в журнал заново.
+		if ( array_key_exists( $phone, self::$crm_cache ) ) {
+			return self::$crm_cache[ $phone ];
+		}
+
+		self::$crm_cache[ $phone ] = false;
+
 		$row = VL_Account_RetailCRM_Directory::find_by_phone( $phone );
 
 		if ( ! $row ) {
-			return false;
-		}
-
-		if ( 'conflict' === $row['status'] ) {
-			self::log(
-				'conflict',
-				array(
-					'phone'  => $phone,
-					'source' => 'crm',
-					'note'   => 'один телефон у нескольких клиентов CRM',
-				)
-			);
-
 			return false;
 		}
 
@@ -548,11 +552,177 @@ class VL_Account_Identity {
 			}
 		}
 
+		// Один телефон у нескольких карточек CRM — данные уже склеены, остаётся
+		// выбрать, в какой из аккаунтов сайта пускать.
+		$row['candidates'] = self::crm_candidates( $row );
+
+		if ( $row['candidates'] && ( count( $row['candidates'] ) > 1 || 'conflict' === $row['status'] ) ) {
+			$row['user_id'] = self::pick_account( $row['candidates'], $phone );
+
+			// Кандидаты есть, но пускать в них нельзя (например, это аккаунт
+			// с правами) — тогда и данные из карточки не берём.
+			if ( ! $row['user_id'] ) {
+				return false;
+			}
+		}
+
 		if ( ! empty( $row['user_id'] ) && ! self::is_adoptable( (int) $row['user_id'] ) ) {
 			return false;
 		}
 
+		self::$crm_cache[ $phone ] = $row;
+
 		return $row;
+	}
+
+	/**
+	 * Аккаунты сайта, на которые указывают карточки CRM с этим телефоном.
+	 *
+	 * @param array $row Склеенная строка справочника.
+	 * @return array ID аккаунтов.
+	 */
+	public static function crm_candidates( $row ) {
+		$ids = isset( $row['user_ids'] ) ? (array) $row['user_ids'] : array();
+
+		foreach ( array( 'user_id', 'external_id' ) as $key ) {
+			if ( ! empty( $row[ $key ] ) ) {
+				$ids[] = (int) $row[ $key ];
+			}
+		}
+
+		// Почта карточки тоже ведёт к аккаунту — снимок мог её не сопоставить.
+		if ( ! empty( $row['email'] ) ) {
+			$user = get_user_by( 'email', $row['email'] );
+
+			if ( $user ) {
+				$ids[] = (int) $user->ID;
+			}
+		}
+
+		$ids = array_values( array_unique( array_filter( array_map( 'intval', $ids ) ) ) );
+
+		return array_values( array_filter( $ids, array( __CLASS__, 'account_exists' ) ) );
+	}
+
+	/**
+	 * Аккаунт существует.
+	 *
+	 * @param int $user_id Пользователь.
+	 * @return bool
+	 */
+	protected static function account_exists( $user_id ) {
+		return (bool) get_user_by( 'id', (int) $user_id );
+	}
+
+	/**
+	 * Выбрать аккаунт из нескольких кандидатов.
+	 *
+	 * Раньше на такой развилке автоматика просто отказывалась работать, и
+	 * покупатель видел пустой кабинет. Теперь выбираем по понятному правилу:
+	 *
+	 *   — живой аккаунт (со своей почтой и историей) важнее пустышки,
+	 *     заведённой входом по SMS;
+	 *   — если живых несколько, берём тот, где больше заказов, а при равенстве —
+	 *     заведённый раньше; запись об этом уходит в отчёт;
+	 *   — если живых нет, берём самую старую пустышку: остальные к ней приклеятся.
+	 *
+	 * @param array  $ids   ID аккаунтов.
+	 * @param string $phone Нормализованный номер (для журнала).
+	 * @return int
+	 */
+	public static function pick_account( $ids, $phone = '' ) {
+		$live = array();
+		$tech = array();
+
+		foreach ( array_unique( array_map( 'intval', (array) $ids ) ) as $user_id ) {
+			if ( ! $user_id || ! self::is_adoptable( $user_id ) ) {
+				continue;
+			}
+
+			$user = get_user_by( 'id', $user_id );
+
+			if ( ! $user ) {
+				continue;
+			}
+
+			if ( self::is_technical( $user ) ) {
+				$tech[] = $user_id;
+			} else {
+				$live[] = $user_id;
+			}
+		}
+
+		if ( 1 === count( $live ) ) {
+			return (int) $live[0];
+		}
+
+		if ( count( $live ) > 1 ) {
+			$chosen = self::busiest( $live );
+
+			self::log(
+				'conflict',
+				array(
+					'phone'   => $phone,
+					'user_id' => $chosen,
+					'source'  => 'crm',
+					'note'    => 'живых аккаунтов с этим телефоном: ' . implode( ', ', $live ) . '; выбран ' . $chosen . ' (больше заказов)',
+				)
+			);
+
+			return $chosen;
+		}
+
+		if ( $tech ) {
+			sort( $tech );
+
+			return (int) $tech[0];
+		}
+
+		return 0;
+	}
+
+	/**
+	 * Аккаунт с наибольшим числом заказов; при равенстве — самый старый.
+	 *
+	 * @param array $ids ID аккаунтов.
+	 * @return int
+	 */
+	protected static function busiest( $ids ) {
+		$best  = 0;
+		$count = -1;
+
+		foreach ( $ids as $user_id ) {
+			$orders = self::orders_count( $user_id );
+
+			if ( $orders > $count || ( $orders === $count && $user_id < $best ) ) {
+				$best  = (int) $user_id;
+				$count = $orders;
+			}
+		}
+
+		return $best;
+	}
+
+	/**
+	 * Сколько заказов у аккаунта.
+	 *
+	 * @param int $user_id Пользователь.
+	 * @return int
+	 */
+	protected static function orders_count( $user_id ) {
+		if ( ! vlacc_is_woo() ) {
+			return 0;
+		}
+
+		$orders = wc_get_orders(
+			array(
+				'customer_id' => (int) $user_id,
+				'limit'       => 100,
+				'return'      => 'ids',
+			)
+		);
+
+		return is_array( $orders ) ? count( $orders ) : 0;
 	}
 
 	/**
@@ -683,8 +853,9 @@ class VL_Account_Identity {
 			return false;
 		}
 
-		// Дубли: тот же телефон мог остаться на пустышках прошлых входов.
-		$user = self::merge_duplicates( $user, $phone );
+		// Дубли: тот же телефон мог остаться на пустышках прошлых входов, а ещё
+		// на них могут указывать карточки CRM — их телефон в профиле не записан.
+		$user = self::merge_duplicates( $user, $phone, self::crm_duplicates( $phone ) );
 
 		self::attach_phone( $user->ID, $phone );
 		self::adopt_from_crm( $user->ID, $phone );
@@ -851,18 +1022,31 @@ class VL_Account_Identity {
 	 * ------------------------------------------------------------------ */
 
 	/**
+	 * Аккаунты, на которые указывают карточки CRM с этим телефоном.
+	 *
+	 * @param string $phone Нормализованный номер.
+	 * @return array
+	 */
+	public static function crm_duplicates( $phone ) {
+		$row = self::find_in_crm( $phone );
+
+		return ( $row && ! empty( $row['candidates'] ) ) ? (array) $row['candidates'] : array();
+	}
+
+	/**
 	 * Объединить с целевым аккаунтом все пустышки с тем же телефоном.
 	 *
 	 * @param WP_User $user  Аккаунт, в который входим.
 	 * @param string  $phone Нормализованный номер.
+	 * @param array   $extra Дополнительные кандидаты на слияние.
 	 * @return WP_User Итоговый аккаунт.
 	 */
-	public static function merge_duplicates( $user, $phone ) {
+	public static function merge_duplicates( $user, $phone, $extra = array() ) {
 		if ( ! VL_Account_Settings::get( 'identity_merge', 1 ) ) {
 			return $user;
 		}
 
-		$duplicates = self::duplicates( $phone, $user->ID );
+		$duplicates = self::duplicates( $phone, $user->ID, $extra );
 
 		foreach ( $duplicates as $duplicate_id ) {
 			self::merge( $duplicate_id, $user->ID, 'phone' );
@@ -876,9 +1060,10 @@ class VL_Account_Identity {
 	 *
 	 * @param string $phone  Нормализованный номер.
 	 * @param int    $keep   ID аккаунта, который остаётся.
+	 * @param array  $extra  Дополнительные кандидаты (например, из CRM).
 	 * @return array ID аккаунтов на слияние.
 	 */
-	public static function duplicates( $phone, $keep ) {
+	public static function duplicates( $phone, $keep, $extra = array() ) {
 		$found = get_users(
 			array(
 				'meta_key'   => VL_Account_User::META_PHONE, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
@@ -887,6 +1072,8 @@ class VL_Account_Identity {
 				'fields'     => 'ID',
 			)
 		);
+
+		$found = array_unique( array_map( 'intval', array_merge( (array) $found, (array) $extra ) ) );
 
 		$list = array();
 
@@ -956,6 +1143,14 @@ class VL_Account_Identity {
 
 		self::move_profile( $from_id, $into_id );
 		self::move_consents( $from_id, $into_id );
+
+		// Карточка CRM погашенного аккаунта должна указывать на выживший: на ней
+		// могут быть заказы и баллы. Делаем это до того, как снимем телефон с
+		// источника — по нему карточка и находится.
+		if ( class_exists( 'VL_Account_RetailCRM' ) ) {
+			VL_Account_RetailCRM::rebind_card( $from_id, $into_id );
+			VL_Account_RetailCRM::flush( $into_id );
+		}
 
 		// Телефон уводим с источника, иначе он снова найдётся при входе.
 		delete_user_meta( $from_id, VL_Account_User::META_PHONE );
