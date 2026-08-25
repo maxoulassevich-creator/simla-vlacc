@@ -660,11 +660,7 @@ class VL_Account_RetailCRM_Directory {
 			return false;
 		}
 
-		$customer = self::search_customer( $api, $phone );
-
-		if ( ! $customer ) {
-			$customer = self::search_loyalty( $api, $phone );
-		}
+		$customer = self::search_everywhere( $api, $phone );
 
 		if ( ! $customer ) {
 			return false;
@@ -694,6 +690,161 @@ class VL_Account_RetailCRM_Directory {
 			'status'      => 'live',
 			'note'        => 'api',
 		);
+	}
+
+	/**
+	 * Перебрать все способы найти клиента CRM по телефону.
+	 *
+	 * У RetailCRM нет одного надёжного фильтра «по телефону»: общий поиск
+	 * customers/list ищет по-разному в разных аккаунтах, поэтому пробуем
+	 * подряд четыре пути и проверяем каждого кандидата по его же телефонам.
+	 *
+	 * @param object $api   Клиент API.
+	 * @param string $phone Нормализованный номер.
+	 * @return array|false
+	 */
+	public static function search_everywhere( $api, $phone ) {
+		$strategies = array(
+			'customers-name'  => 'search_customer',
+			'customers-phone' => 'search_customer_phone',
+			'orders'          => 'search_orders',
+			'loyalty'         => 'search_loyalty',
+		);
+
+		foreach ( $strategies as $name => $method ) {
+			$customer = self::$method( $api, $phone );
+
+			if ( $customer ) {
+				self::log_attempt( $phone, $name, true, isset( $customer['id'] ) ? (int) $customer['id'] : 0 );
+
+				return $customer;
+			}
+
+			self::log_attempt( $phone, $name, false, 0 );
+		}
+
+		return false;
+	}
+
+	/**
+	 * Записать попытку поиска в журнал плагина.
+	 *
+	 * @param string $phone  Номер.
+	 * @param string $method Способ.
+	 * @param bool   $found  Нашли ли.
+	 * @param int    $crm_id Найденный клиент.
+	 */
+	protected static function log_attempt( $phone, $method, $found, $crm_id ) {
+		vlacc_log(
+			'Поиск покупателя в CRM: ' . $method,
+			array(
+				'phone'  => vlacc_mask_phone( $phone ),
+				'найден' => $found ? 'да' : 'нет',
+				'crm_id' => $crm_id,
+			)
+		);
+	}
+
+	/**
+	 * Поиск через фильтр «телефон» списка клиентов.
+	 *
+	 * Не во всех аккаунтах CRM он поддерживается: неизвестный фильтр там
+	 * просто игнорируется, поэтому кандидата всё равно проверяем по телефонам.
+	 *
+	 * @param object $api   Клиент API.
+	 * @param string $phone Нормализованный номер.
+	 * @return array|false
+	 */
+	protected static function search_customer_phone( $api, $phone ) {
+		foreach ( self::search_terms( $phone ) as $term ) {
+			$response = $api->customersList( array( 'phone' => $term ), 1, 20 );
+
+			if ( ! $response instanceof WC_Retailcrm_Response || ! $response->isSuccessful() ) {
+				continue;
+			}
+
+			$customers = $response->offsetExists( 'customers' ) ? (array) $response['customers'] : array();
+
+			// Фильтр мог быть проигнорирован — тогда вернётся весь список.
+			if ( count( $customers ) > 5 ) {
+				continue;
+			}
+
+			foreach ( $customers as $customer ) {
+				if ( self::has_phone( $customer, $phone ) ) {
+					return $customer;
+				}
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Поиск через заказы: у заказа телефон есть всегда.
+	 *
+	 * @param object $api   Клиент API.
+	 * @param string $phone Нормализованный номер.
+	 * @return array|false
+	 */
+	protected static function search_orders( $api, $phone ) {
+		if ( ! is_callable( array( $api, 'ordersList' ) ) ) {
+			return false;
+		}
+
+		foreach ( self::search_terms( $phone ) as $term ) {
+			$response = $api->ordersList( array( 'customer' => $term ), 1, 20 );
+
+			if ( ! $response instanceof WC_Retailcrm_Response || ! $response->isSuccessful() ) {
+				continue;
+			}
+
+			$orders = $response->offsetExists( 'orders' ) ? (array) $response['orders'] : array();
+
+			foreach ( $orders as $order ) {
+				$order_phone = isset( $order['phone'] ) ? $order['phone'] : '';
+				$crm_id      = isset( $order['customer']['id'] ) ? (int) $order['customer']['id'] : 0;
+
+				if ( ! $crm_id ) {
+					continue;
+				}
+
+				$matches = VL_Account_Phone::normalize( $order_phone ) === $phone;
+
+				if ( ! $matches && isset( $order['customer'] ) ) {
+					$matches = self::has_phone( (array) $order['customer'], $phone );
+				}
+
+				if ( ! $matches ) {
+					continue;
+				}
+
+				$customer = self::fetch_customer( $api, $crm_id );
+
+				if ( $customer ) {
+					return $customer;
+				}
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Карточка клиента CRM по его id.
+	 *
+	 * @param object $api    Клиент API.
+	 * @param int    $crm_id Клиент.
+	 * @return array|false
+	 */
+	public static function fetch_customer( $api, $crm_id ) {
+		$response = $api->customersGet( (int) $crm_id, 'id' );
+
+		if ( $response instanceof WC_Retailcrm_Response && $response->isSuccessful() && $response->offsetExists( 'customer' ) ) {
+			return (array) $response['customer'];
+		}
+
+		return false;
 	}
 
 	/**
@@ -731,33 +882,69 @@ class VL_Account_RetailCRM_Directory {
 	 * @return array|false
 	 */
 	protected static function search_loyalty( $api, $phone ) {
+		$account = self::loyalty_account_by_phone( $api, $phone );
+
+		if ( ! $account ) {
+			return false;
+		}
+
+		$crm_id = self::customer_id_from_account( $account );
+
+		return $crm_id ? self::fetch_customer( $api, $crm_id ) : false;
+	}
+
+	/**
+	 * Участие в программе лояльности по номеру телефона.
+	 *
+	 * @param object $api   Клиент API.
+	 * @param string $phone Нормализованный номер.
+	 * @return array|false
+	 */
+	public static function loyalty_account_by_phone( $api, $phone ) {
 		if ( ! is_callable( array( $api, 'getLoyaltyAccountList' ) ) ) {
 			return false;
 		}
 
-		$response = $api->getLoyaltyAccountList( array( 'phoneNumber' => '+' . $phone ), 20, 1 );
+		foreach ( array( '+' . $phone, $phone ) as $term ) {
+			$response = $api->getLoyaltyAccountList( array( 'phoneNumber' => $term ), 20, 1 );
 
-		if ( ! $response instanceof WC_Retailcrm_Response || ! $response->isSuccessful() ) {
-			return false;
-		}
-
-		$accounts = $response->offsetExists( 'loyaltyAccounts' ) ? (array) $response['loyaltyAccounts'] : array();
-
-		foreach ( $accounts as $account ) {
-			$crm_id = isset( $account['customerId'] ) ? (int) $account['customerId'] : 0;
-
-			if ( ! $crm_id ) {
+			if ( ! $response instanceof WC_Retailcrm_Response || ! $response->isSuccessful() ) {
 				continue;
 			}
 
-			$customer = $api->customersGet( $crm_id, 'id' );
+			$accounts = $response->offsetExists( 'loyaltyAccounts' ) ? (array) $response['loyaltyAccounts'] : array();
 
-			if ( $customer instanceof WC_Retailcrm_Response && $customer->isSuccessful() && $customer->offsetExists( 'customer' ) ) {
-				return (array) $customer['customer'];
+			foreach ( $accounts as $account ) {
+				$number = isset( $account['phoneNumber'] ) ? $account['phoneNumber'] : '';
+
+				// Фильтр мог быть проигнорирован — сверяем номер сами.
+				if ( '' !== $number && VL_Account_Phone::normalize( $number ) !== $phone ) {
+					continue;
+				}
+
+				return (array) $account;
 			}
 		}
 
 		return false;
+	}
+
+	/**
+	 * ID клиента CRM из записи об участии в программе.
+	 *
+	 * @param array $account Участие.
+	 * @return int
+	 */
+	public static function customer_id_from_account( $account ) {
+		if ( isset( $account['customerId'] ) ) {
+			return (int) $account['customerId'];
+		}
+
+		if ( isset( $account['customer']['id'] ) ) {
+			return (int) $account['customer']['id'];
+		}
+
+		return 0;
 	}
 
 	/**

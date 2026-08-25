@@ -41,6 +41,11 @@ class VL_Account_RetailCRM_Loyalty {
 	const META_CHECK = 'vlacc_lp_check';
 
 	/**
+	 * Метка: когда последний раз пробовали вступить.
+	 */
+	const META_TRIED = 'vlacc_lp_tried';
+
+	/**
 	 * Опция: CRM требует подтверждать участие по SMS.
 	 */
 	const OPTION_VERIFY = 'vlacc_crm_lp_verification';
@@ -139,6 +144,40 @@ class VL_Account_RetailCRM_Loyalty {
 	}
 
 	/**
+	 * Убедиться, что покупатель участвует в программе.
+	 *
+	 * Вызывается при входе: у аккаунтов, заведённых до появления
+	 * автовступления, участия может не быть вовсе. Работу ставим в очередь,
+	 * чтобы вход не ждал запросов к CRM.
+	 *
+	 * @param int $user_id Пользователь.
+	 */
+	public static function ensure_membership( $user_id ) {
+		$user_id = (int) $user_id;
+
+		if ( ! $user_id || ! self::auto_enabled() || ! self::may_retry( $user_id ) ) {
+			return;
+		}
+
+		if ( '' === VL_Account_User::get_phone( $user_id ) ) {
+			return;
+		}
+
+		// Уже участвует — ничего не делаем (данные берутся из кэша).
+		$account = VL_Account_RetailCRM::account( $user_id );
+
+		if ( 'active' === $account['status'] ) {
+			return;
+		}
+
+		update_user_meta( $user_id, self::META_PENDING, 1 );
+
+		if ( ! wp_next_scheduled( self::CRON, array( $user_id ) ) ) {
+			wp_schedule_single_event( time() + 1, self::CRON, array( $user_id ) );
+		}
+	}
+
+	/**
 	 * Вступление ещё не доведено до конца.
 	 *
 	 * @param int $user_id Пользователь.
@@ -146,6 +185,25 @@ class VL_Account_RetailCRM_Loyalty {
 	 */
 	public static function pending( $user_id ) {
 		return '' !== (string) get_user_meta( $user_id, self::META_PENDING, true );
+	}
+
+	/**
+	 * Можно ли пробовать вступление ещё раз.
+	 *
+	 * После неудачи (CRM недоступна, ошибка) повторяем не чаще раза в сутки,
+	 * чтобы не дёргать API на каждом открытии раздела.
+	 *
+	 * @param int $user_id Пользователь.
+	 * @return bool
+	 */
+	public static function may_retry( $user_id ) {
+		if ( self::pending( $user_id ) ) {
+			return true;
+		}
+
+		$last = (int) get_user_meta( $user_id, self::META_TRIED, true );
+
+		return ( time() - $last ) > DAY_IN_SECONDS;
 	}
 
 	/**
@@ -176,6 +234,7 @@ class VL_Account_RetailCRM_Loyalty {
 		}
 
 		set_transient( $lock, 1, 2 * MINUTE_IN_SECONDS );
+		update_user_meta( $user_id, self::META_TRIED, time() );
 
 		$phone = VL_Account_User::get_phone( $user_id );
 
@@ -396,16 +455,21 @@ class VL_Account_RetailCRM_Loyalty {
 			return $state;
 		}
 
-		// Запасной путь: если планировщик не отработал (у части хостингов
-		// WP-Cron выключен), доводим вступление здесь — покупатель как раз
-		// смотрит на свои баллы.
-		if ( self::pending( $user_id ) && $user_id === get_current_user_id() ) {
-			self::auto_join( $user_id );
-
-			$state['check_id'] = (string) get_user_meta( $user_id, self::META_CHECK, true );
-		}
-
 		$account = VL_Account_RetailCRM::account( $user_id );
+
+		// Участия нет — оформляем сами, прямо здесь. Так закрываются оба
+		// случая: у хостинга выключен WP-Cron и аккаунт заведён до того,
+		// как автовступление появилось в плагине.
+		$mine = $user_id === get_current_user_id();
+
+		if ( $mine && self::auto_enabled() && in_array( $account['status'], array( 'none', 'inactive' ), true ) && self::may_retry( $user_id ) ) {
+			$result = self::auto_join( $user_id );
+
+			if ( 'skip' !== $result ) {
+				$state['check_id'] = (string) get_user_meta( $user_id, self::META_CHECK, true );
+				$account           = VL_Account_RetailCRM::account( $user_id, true );
+			}
+		}
 
 		$state['crm']      = true;
 		$state['status']   = $account['status'];

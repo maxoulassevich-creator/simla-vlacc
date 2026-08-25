@@ -221,6 +221,58 @@ $again  = VL_Account_RetailCRM_Loyalty::auto_join( 5 );
 check( 'второй заход подряд пропускается', 'skip' === $again, $again );
 check( 'лишних запросов в CRM нет', $before === count( $GLOBALS['log'] ) );
 
+echo "\n== 7. Старый аккаунт: участие оформляется при открытии «Бонусов» ==\n";
+lp_reset();
+
+// Метки «незакончено» нет — аккаунт заведён до появления автовступления.
+WC_Retailcrm_Loyalty::$activate = new WC_Retailcrm_Response( 200, '{"loyaltyAccount":{"id":12,"active":true}}' );
+lp_sequence( array( 'none', 'none', 'inactive', 'active' ) );
+
+$GLOBALS['logged_in']       = true;
+$GLOBALS['current_user_id'] = 5;
+
+$state = VL_Account_RetailCRM_Loyalty::state( 5 );
+$calls = array();
+
+foreach ( $GLOBALS['log'] as $entry ) {
+	$calls[] = $entry[0];
+}
+
+check( 'вступление оформлено без кнопки', in_array( 'lp_register', $calls, true ), print_r( $calls, true ) );
+check( 'раздел показывает активное участие', 'active' === $state['status'], $state['status'] );
+
+echo "\n== 8. Вход ставит вступление в очередь ==\n";
+lp_reset();
+
+lp_accounts( 'none' );
+VL_Account_RetailCRM_Loyalty::ensure_membership( 5 );
+
+check( 'задача поставлена', ! empty( $GLOBALS['scheduled'] ) );
+check( 'метка выставлена', VL_Account_RetailCRM_Loyalty::pending( 5 ) );
+
+lp_reset();
+lp_accounts( 'active' );
+VL_Account_RetailCRM_Loyalty::ensure_membership( 5 );
+
+check( 'участнику ничего не планируем', empty( $GLOBALS['scheduled'] ) );
+
+lp_reset();
+delete_user_meta( 5, VL_Account_User::META_PHONE );
+lp_accounts( 'none' );
+VL_Account_RetailCRM_Loyalty::ensure_membership( 5 );
+
+check( 'без телефона очередь не трогаем', empty( $GLOBALS['scheduled'] ) );
+
+echo "\n== 9. Повторы после неудачи ==\n";
+lp_reset();
+
+update_user_meta( 5, VL_Account_RetailCRM_Loyalty::META_TRIED, time() );
+
+check( 'сразу после попытки не повторяем', ! VL_Account_RetailCRM_Loyalty::may_retry( 5 ) );
+
+update_user_meta( 5, VL_Account_RetailCRM_Loyalty::META_TRIED, time() - 2 * DAY_IN_SECONDS );
+check( 'через сутки пробуем снова', VL_Account_RetailCRM_Loyalty::may_retry( 5 ) );
+
 echo "\n------------------------------------------------------------\n";
 echo "Пройдено: $pass, провалено: $fail\n";
 

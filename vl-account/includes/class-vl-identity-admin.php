@@ -185,6 +185,109 @@ class VL_Account_Identity_Admin {
 	}
 
 	/**
+	 * Что известно про телефон: аккаунт, карточка CRM, участие, заказы.
+	 *
+	 * Это ответ на вопрос «почему у покупателя ничего не подтянулось»:
+	 * видно, какой способ поиска сработал, а какой вернул пусто.
+	 *
+	 * @param string $phone Номер в любом виде.
+	 * @return array Строки отчёта: label => value.
+	 */
+	public static function probe( $phone ) {
+		$normalized = VL_Account_Phone::normalize( $phone );
+		$report     = array();
+
+		if ( '' === $normalized ) {
+			return array( __( 'Номер', 'vl-account' ) => __( 'не разобран — проверьте, что это телефон', 'vl-account' ) );
+		}
+
+		$report[ __( 'Номер', 'vl-account' ) ] = VL_Account_Phone::format( $normalized ) . ' (' . $normalized . ')';
+
+		// 1. Аккаунт на сайте.
+		$user = VL_Account_User::get_by_phone( $normalized );
+
+		$report[ __( 'Аккаунт на сайте', 'vl-account' ) ] = $user
+			? sprintf( '#%d — %s (%s)', $user->ID, $user->user_login, $user->user_email )
+			: __( 'не найден', 'vl-account' );
+
+		// 2. Заказы сайта с этим номером.
+		$orders = class_exists( 'VL_Account_Orders' ) ? VL_Account_Orders::find_orders_by_phone( $normalized ) : array();
+
+		$report[ __( 'Заказы сайта с этим номером', 'vl-account' ) ] = $orders
+			? count( $orders )
+			: __( 'нет', 'vl-account' );
+
+		// 3. Снимок базы CRM.
+		$row = VL_Account_RetailCRM_Directory::query(
+			array(
+				'search' => $normalized,
+				'limit'  => 3,
+			)
+		);
+
+		$report[ __( 'В снимке базы CRM', 'vl-account' ) ] = $row
+			? sprintf( 'клиент %d, статус %s, аккаунт %d', (int) $row[0]['crm_id'], $row[0]['status'], (int) $row[0]['user_id'] )
+			: __( 'нет записи', 'vl-account' );
+
+		if ( ! VL_Account_RetailCRM::enabled() ) {
+			$report[ __( 'Связь с CRM', 'vl-account' ) ] = __( 'выключена или не настроена — дальше проверять нечего', 'vl-account' );
+
+			return $report;
+		}
+
+		$api = VL_Account_RetailCRM::api();
+
+		// 4. Поиск клиента в CRM всеми способами.
+		$customer = VL_Account_RetailCRM_Directory::search_everywhere( $api, $normalized );
+
+		if ( $customer ) {
+			$report[ __( 'Клиент в CRM', 'vl-account' ) ] = sprintf(
+				'id %d, externalId %s, %s %s, %s',
+				isset( $customer['id'] ) ? (int) $customer['id'] : 0,
+				! empty( $customer['externalId'] ) ? (int) $customer['externalId'] : '—',
+				isset( $customer['firstName'] ) ? $customer['firstName'] : '',
+				isset( $customer['lastName'] ) ? $customer['lastName'] : '',
+				isset( $customer['email'] ) ? $customer['email'] : '—'
+			);
+		} else {
+			$report[ __( 'Клиент в CRM', 'vl-account' ) ] = __( 'не найден ни одним способом (см. журнал плагина — там записана каждая попытка)', 'vl-account' );
+		}
+
+		// 5. Участие в программе лояльности по номеру.
+		$account = VL_Account_RetailCRM_Directory::loyalty_account_by_phone( $api, $normalized );
+
+		if ( $account ) {
+			$report[ __( 'Участие в программе лояльности', 'vl-account' ) ] = sprintf(
+				'id %d, %s, баллов: %s, уровень: %s',
+				isset( $account['id'] ) ? (int) $account['id'] : 0,
+				empty( $account['active'] ) ? __( 'не активировано', 'vl-account' ) : __( 'активно', 'vl-account' ),
+				isset( $account['amount'] ) ? (string) $account['amount'] : '0',
+				isset( $account['level']['name'] ) ? $account['level']['name'] : '—'
+			);
+		} else {
+			$report[ __( 'Участие в программе лояльности', 'vl-account' ) ] = __( 'по номеру не найдено', 'vl-account' );
+		}
+
+		// 6. Что увидит кабинет.
+		if ( $user ) {
+			VL_Account_RetailCRM::flush( $user->ID );
+			$state = VL_Account_RetailCRM::account( $user->ID, true );
+
+			$report[ __( 'Кабинет покажет', 'vl-account' ) ] = sprintf(
+				'статус «%s», баллов: %s',
+				$state['status'],
+				number_format_i18n( $state['amount'] )
+			);
+
+			$crm_orders = VL_Account_RetailCRM::orders( $user->ID, 50 );
+
+			$report[ __( 'Заказы из CRM для кабинета', 'vl-account' ) ] = $crm_orders ? count( $crm_orders ) : __( 'нет', 'vl-account' );
+		}
+
+		return $report;
+	}
+
+	/**
 	 * Заменить логины-номера на логины из имени.
 	 *
 	 * Разовая уборка для аккаунтов, заведённых до появления поля «Имя».
@@ -378,6 +481,8 @@ class VL_Account_Identity_Admin {
 		$status = isset( $_GET['status'] ) ? sanitize_key( wp_unslash( $_GET['status'] ) ) : '';
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
 		$search = isset( $_GET['s'] ) ? sanitize_text_field( wp_unslash( $_GET['s'] ) ) : '';
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$probe = isset( $_GET['probe'] ) ? sanitize_text_field( wp_unslash( $_GET['probe'] ) ) : '';
 
 		$state = VL_Account_RetailCRM_Directory::state();
 		$stats = VL_Account_RetailCRM_Directory::stats();
@@ -469,6 +574,31 @@ class VL_Account_Identity_Admin {
 					<?php esc_html_e( 'Выгрузка идёт в фоне маленькими пачками (по 100 клиентов, несколько запросов в минуту) — сайт при этом не нагружается. «Дописать телефоны» — разовая операция: номер из CRM попадает в профиль старого аккаунта, и дальше вход по SMS находит его без обращения к CRM. «Логины из имени» меняет логины-номера у аккаунтов без пароля на логины вида aleksandr — WordPress сам такого не умеет.', 'vl-account' ); ?>
 				</p>
 			</form>
+
+			<h2><?php esc_html_e( 'Проверка покупателя по телефону', 'vl-account' ); ?></h2>
+
+			<p class="description" style="max-width:900px">
+				<?php esc_html_e( 'Показывает по шагам, что о номере знает сайт и что отвечает CRM: есть ли аккаунт, есть ли карточка клиента, каким способом она нашлась, есть ли участие в программе лояльности и сколько на нём баллов. Запросы идут в CRM прямо сейчас, кэш при этом сбрасывается.', 'vl-account' ); ?>
+			</p>
+
+			<form method="get" style="margin-bottom:12px">
+				<input type="hidden" name="page" value="<?php echo esc_attr( self::PAGE ); ?>" />
+				<input type="text" name="probe" value="<?php echo esc_attr( $probe ); ?>" placeholder="+7 (___) ___-__-__" style="width:220px" />
+				<button class="button button-primary"><?php esc_html_e( 'Проверить', 'vl-account' ); ?></button>
+			</form>
+
+			<?php if ( '' !== $probe ) : ?>
+				<table class="widefat striped" style="max-width:900px;margin-bottom:24px">
+					<tbody>
+						<?php foreach ( self::probe( $probe ) as $vl_label => $vl_value ) : ?>
+							<tr>
+								<td style="width:280px"><strong><?php echo esc_html( $vl_label ); ?></strong></td>
+								<td><?php echo esc_html( is_scalar( $vl_value ) ? (string) $vl_value : wp_json_encode( $vl_value ) ); ?></td>
+							</tr>
+						<?php endforeach; ?>
+					</tbody>
+				</table>
+			<?php endif; ?>
 
 			<h2><?php esc_html_e( 'Журнал сопоставлений', 'vl-account' ); ?></h2>
 

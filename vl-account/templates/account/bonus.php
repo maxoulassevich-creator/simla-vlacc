@@ -24,6 +24,8 @@ $vl_account  = isset( $vl_state['account'] ) ? $vl_state['account'] : array();
 $vl_balance  = VL_Account_Bonus::get_balance( $user_id );
 $vl_history  = VL_Account_Bonus::get_history( $user_id );
 $vl_page     = (int) VL_Account_Settings::get( 'loyalty_page', 0 );
+$vl_auto     = class_exists( 'VL_Account_RetailCRM_Loyalty' ) && VL_Account_RetailCRM_Loyalty::auto_enabled();
+$vl_check    = isset( $vl_state['check_id'] ) ? (string) $vl_state['check_id'] : '';
 $vl_discount = $vl_crm && class_exists( 'VL_Account_RetailCRM_Loyalty' )
 	? VL_Account_RetailCRM_Loyalty::is_discount_level( $vl_account )
 	: false;
@@ -133,7 +135,7 @@ $vl_discount = $vl_crm && class_exists( 'VL_Account_RetailCRM_Loyalty' )
 			</div>
 		</div>
 
-	<?php elseif ( $vl_crm && 'none' === $vl_status ) : ?>
+	<?php elseif ( $vl_crm && 'none' === $vl_status && ! $vl_auto ) : ?>
 
 		<div class="vl-loyalty vl-loyalty--join">
 			<h3 class="vl-subtitle"><?php esc_html_e( 'Программа лояльности', 'vl-account' ); ?></h3>
@@ -173,13 +175,21 @@ $vl_discount = $vl_crm && class_exists( 'VL_Account_RetailCRM_Loyalty' )
 			</button>
 		</div>
 
+	<?php elseif ( $vl_crm && 'none' === $vl_status ) : ?>
+
+		<p class="vl-note">
+			<?php esc_html_e( 'Оформляем участие в программе лояльности — баллы появятся здесь автоматически, обновите страницу через минуту.', 'vl-account' ); ?>
+		</p>
+
+	<?php elseif ( $vl_crm && 'inactive' === $vl_status && '' === $vl_check && $vl_auto ) : ?>
+
+		<p class="vl-note">
+			<?php esc_html_e( 'Участие оформляется — баллы появятся здесь автоматически, обновите страницу через минуту.', 'vl-account' ); ?>
+		</p>
+
 	<?php elseif ( $vl_crm && 'inactive' === $vl_status ) : ?>
 
-		<?php
-		// Кабинет уже пытался активировать участие сам, но CRM прислала свой код:
-		// в настройках программы лояльности включено подтверждение участия.
-		$vl_check = isset( $vl_state['check_id'] ) ? (string) $vl_state['check_id'] : '';
-		?>
+		<?php // Кабинет пытался активировать участие сам, но CRM прислала свой код. ?>
 
 		<div class="vl-loyalty vl-loyalty--activate">
 			<h3 class="vl-subtitle"><?php esc_html_e( 'Осталось активировать участие', 'vl-account' ); ?></h3>
@@ -229,7 +239,7 @@ $vl_discount = $vl_crm && class_exists( 'VL_Account_RetailCRM_Loyalty' )
 		</p>
 	<?php endif; ?>
 
-	<?php if ( ! $vl_crm || in_array( $vl_status, array( 'active', 'error' ), true ) ) : ?>
+	<?php if ( ! $vl_crm || in_array( $vl_status, array( 'active', 'error' ), true ) || $vl_history ) : ?>
 		<h3 class="vl-subtitle"><?php esc_html_e( 'История', 'vl-account' ); ?></h3>
 
 		<?php vlacc_template( 'parts/bonus-history.php', array( 'history' => $vl_history ) ); ?>

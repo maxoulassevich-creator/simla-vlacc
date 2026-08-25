@@ -193,6 +193,44 @@ class Fake_Directory {
 	public static function find_by_phone( $phone ) { return self::$row; }
 	public static function set_external_id( $crm_id, $user_id ) { $GLOBALS['log'][] = array( 'directory_link', $crm_id, $user_id ); }
 	public static function flush_cache() {}
+	public static function store( $customer ) { return 1; }
+
+	/** Те же правила, что в настоящем справочнике. */
+	public static function loyalty_account_by_phone( $api, $phone ) {
+		$response = $api->getLoyaltyAccountList( array( 'phoneNumber' => '+' . $phone ), 20, 1 );
+
+		if ( ! $response instanceof WC_Retailcrm_Response || ! $response->isSuccessful() ) {
+			return false;
+		}
+
+		$accounts = $response->offsetExists( 'loyaltyAccounts' ) ? (array) $response['loyaltyAccounts'] : array();
+
+		foreach ( $accounts as $account ) {
+			$number = $account['phoneNumber'] ?? '';
+
+			if ( '' !== $number && VL_Account_Phone::normalize( $number ) !== $phone ) {
+				continue;
+			}
+
+			return (array) $account;
+		}
+
+		return false;
+	}
+
+	public static function customer_id_from_account( $account ) {
+		return (int) ( $account['customerId'] ?? ( $account['customer']['id'] ?? 0 ) );
+	}
+
+	public static function fetch_customer( $api, $crm_id ) {
+		$response = $api->customersGet( (int) $crm_id, 'id' );
+
+		if ( $response instanceof WC_Retailcrm_Response && $response->isSuccessful() && $response->offsetExists( 'customer' ) ) {
+			return (array) $response['customer'];
+		}
+
+		return false;
+	}
 }
 
 class_alias( 'Fake_Directory', 'VL_Account_RetailCRM_Directory' );
@@ -266,6 +304,68 @@ VL_Account_Settings::update( array( 'crm_link_by_phone' => 1 ) );
 // Возвращаем ответ по externalId для следующих проверок.
 WC_Retailcrm_Proxy::$responses['customersGet'] = new WC_Retailcrm_Response( 200, '{"customer":{"id":77}}' );
 VL_Account_RetailCRM::flush_all();
+
+echo "\n== 9.2. Баллы находятся по телефону, даже без связи карточки ==\n";
+
+// Карточки по externalId нет, поиск клиента ничего не даёт, но счёт
+// программы лояльности с баллами по номеру существует.
+WC_Retailcrm_Proxy::$responses['customersGet']          = new WC_Retailcrm_Response( 404, '{}' );
+WC_Retailcrm_Proxy::$responses['customersList']         = new WC_Retailcrm_Response( 200, '{"customers":[]}' );
+WC_Retailcrm_Proxy::$responses['ordersList']            = new WC_Retailcrm_Response( 200, '{"orders":[]}' );
+WC_Retailcrm_Proxy::$responses['getLoyaltyAccountList'] = function ( $args ) {
+	$filter = $args[0] ?? array();
+
+	// По customerId — ничего, по номеру телефона — активный счёт с баллами.
+	if ( isset( $filter['phoneNumber'] ) ) {
+		return new WC_Retailcrm_Response(
+			200,
+			'{"loyaltyAccounts":[{"id":31,"active":true,"amount":1500,"ordersSum":0,"nextLevelSum":30000,
+			  "phoneNumber":"+79261234567","customerId":950,
+			  "level":{"name":"First Love","type":"bonus_percent","privilegeSize":5,"privilegeSizePromo":5},
+			  "loyalty":{"currency":"RUB"}}]}'
+		);
+	}
+
+	return new WC_Retailcrm_Response( 200, '{"loyaltyAccounts":[]}' );
+};
+
+Fake_Directory::$row = false;
+update_user_meta( 4, VL_Account_User::META_PHONE, '79261234567' );
+$GLOBALS['users'][4] = new WP_User( array( 'ID' => 4, 'user_email' => 'ya@example.com' ) );
+
+VL_Account_RetailCRM::flush_all();
+$account = VL_Account_RetailCRM::account( 4, true );
+
+check( 'участие найдено по номеру', 'active' === $account['status'], $account['status'] );
+check( 'баллы показываются', 1500.0 === (float) $account['amount'], (string) $account['amount'] );
+check( 'уровень подтянулся', 'First Love' === $account['level']['name'], print_r( $account['level'], true ) );
+
+echo "\n== 9.3. Заказы покупателя из CRM ==\n";
+
+WC_Retailcrm_Proxy::$responses['customersGet'] = new WC_Retailcrm_Response( 200, '{"customer":{"id":950}}' );
+WC_Retailcrm_Proxy::$responses['ordersList']   = new WC_Retailcrm_Response(
+	200,
+	'{"orders":[
+		{"id":1,"number":"1001","createdAt":"2026-05-01 12:00:00","status":"complete","totalSumm":5400,
+		 "items":[{"quantity":2},{"quantity":1}]},
+		{"id":2,"number":"1002","externalId":"77","createdAt":"2026-06-01 12:00:00","status":"new","totalSumm":900,"items":[{"quantity":1}]}
+	]}'
+);
+
+VL_Account_RetailCRM::flush_all();
+delete_transient( 'vlacc_crm_orders_1_4' );
+
+$orders = VL_Account_RetailCRM::orders( 4 );
+
+check( 'заказ из CRM показан', 1 === count( $orders ), print_r( $orders, true ) );
+check( 'номер заказа', '1001' === $orders[0]['number'] );
+check( 'сумма заказа', 5400.0 === (float) $orders[0]['total'] );
+check( 'товаров посчитано', 3 === (int) $orders[0]['items'] );
+check( 'заказ сайта в список не попал', '1002' !== $orders[0]['number'] );
+
+VL_Account_Settings::update( array( 'crm_orders_history' => 0 ) );
+check( 'настройка выключает список', array() === VL_Account_RetailCRM::orders( 4 ) );
+VL_Account_Settings::update( array( 'crm_orders_history' => 1 ) );
 
 echo "\n== 10. Приоритет обработки заказа ==\n";
 check( 'приоритет 5 при активной интеграции', 5 === apply_filters( 'vlacc_checkout_hook_priority', 20 ) );

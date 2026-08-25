@@ -693,6 +693,11 @@ class VL_Account_Identity {
 			VL_Account_Orders::attach_guest_orders( $user->ID );
 		}
 
+		// Участие в программе лояльности: у старых аккаунтов его может не быть.
+		if ( class_exists( 'VL_Account_RetailCRM_Loyalty' ) ) {
+			VL_Account_RetailCRM_Loyalty::ensure_membership( $user->ID );
+		}
+
 		return $user;
 	}
 
@@ -834,6 +839,10 @@ class VL_Account_Identity {
 
 		if ( vlacc_is_woo() ) {
 			VL_Account_Orders::attach_guest_orders( $user_id );
+		}
+
+		if ( class_exists( 'VL_Account_RetailCRM_Loyalty' ) ) {
+			VL_Account_RetailCRM_Loyalty::ensure_membership( $user_id );
 		}
 	}
 

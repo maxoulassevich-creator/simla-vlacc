@@ -16,7 +16,10 @@ if ( ! vlacc_is_woo() ) {
 
 $vl_orders = VL_Account_Orders::get_user_orders( $user_id, 50 );
 
-if ( ! $vl_orders ) :
+// Заказы, которых на сайте нет: офлайн, по телефону, перенесённые в CRM.
+$vl_crm_orders = class_exists( 'VL_Account_RetailCRM' ) ? VL_Account_RetailCRM::orders( $user_id, 50 ) : array();
+
+if ( ! $vl_orders && ! $vl_crm_orders ) :
 	?>
 	<div class="vl-empty">
 		<p><?php esc_html_e( 'Здесь появятся ваши заказы — и те, что оформлены без входа в кабинет, на этот же телефон или e-mail.', 'vl-account' ); ?></p>
@@ -26,4 +29,10 @@ if ( ! $vl_orders ) :
 	return;
 endif;
 
-vlacc_template( 'parts/orders-table.php', array( 'orders' => $vl_orders ) );
+if ( $vl_orders ) {
+	vlacc_template( 'parts/orders-table.php', array( 'orders' => $vl_orders ) );
+}
+
+if ( $vl_crm_orders ) {
+	vlacc_template( 'parts/orders-crm.php', array( 'orders' => $vl_crm_orders ) );
+}

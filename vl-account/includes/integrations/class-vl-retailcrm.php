@@ -324,6 +324,64 @@ class VL_Account_RetailCRM {
 	}
 
 	/**
+	 * Участие в программе лояльности по телефону покупателя.
+	 *
+	 * Работает даже тогда, когда карточка клиента в CRM ещё не связана
+	 * с аккаунтом сайта: номер у счёта программы свой. Найденную карточку
+	 * заодно привязываем, чтобы дальше всё шло штатным путём.
+	 *
+	 * @param int $user_id Пользователь.
+	 * @return array|false Запись об участии.
+	 */
+	public static function loyalty_by_phone( $user_id ) {
+		if ( ! class_exists( 'VL_Account_RetailCRM_Directory' ) || ! VL_Account_Settings::get( 'crm_link_by_phone', 1 ) ) {
+			return false;
+		}
+
+		$api   = self::api();
+		$phone = VL_Account_User::get_phone( $user_id );
+
+		if ( ! $api || '' === $phone ) {
+			return false;
+		}
+
+		$account = VL_Account_RetailCRM_Directory::loyalty_account_by_phone( $api, $phone );
+
+		if ( ! $account ) {
+			return false;
+		}
+
+		$crm_id = VL_Account_RetailCRM_Directory::customer_id_from_account( $account );
+
+		if ( $crm_id && empty( self::$crm_ids[ $user_id ] ) ) {
+			// Карточку CRM привязываем к аккаунту, но только свободную.
+			$customer = VL_Account_RetailCRM_Directory::fetch_customer( $api, $crm_id );
+			$external = ( is_array( $customer ) && isset( $customer['externalId'] ) ) ? (int) $customer['externalId'] : 0;
+
+			if ( ! $external ) {
+				self::assign_external_id( $crm_id, $user_id );
+				self::$crm_ids[ $user_id ] = $crm_id;
+			} elseif ( $external === (int) $user_id ) {
+				self::$crm_ids[ $user_id ] = $crm_id;
+			}
+
+			if ( is_array( $customer ) ) {
+				VL_Account_RetailCRM_Directory::store( $customer );
+			}
+		}
+
+		self::log(
+			'Участие в программе лояльности найдено по телефону',
+			array(
+				'user_id' => $user_id,
+				'crm_id'  => $crm_id,
+			)
+		);
+
+		return $account;
+	}
+
+	/**
 	 * Найти карточку CRM по телефону покупателя и привязать её к аккаунту.
 	 *
 	 * @param int $user_id Пользователь.
@@ -525,22 +583,31 @@ class VL_Account_RetailCRM {
 			return self::empty_account( 'off' );
 		}
 
-		$crm_id = self::crm_customer_id( $user_id );
+		$crm_id   = self::crm_customer_id( $user_id );
+		$accounts = array();
 
-		if ( ! $crm_id ) {
-			// Покупателя ещё нет в CRM — участвовать в ПЛ пока не в чем.
-			return self::empty_account( 'none' );
+		if ( $crm_id ) {
+			$response = $api->getLoyaltyAccountList( array( 'customerId' => $crm_id ) );
+
+			if ( ! $response instanceof WC_Retailcrm_Response || ! $response->isSuccessful() ) {
+				self::log( 'Не удалось получить участие в программе лояльности', array( 'user_id' => $user_id ) );
+
+				return self::empty_account( 'error' );
+			}
+
+			$accounts = $response->offsetExists( 'loyaltyAccounts' ) ? (array) $response['loyaltyAccounts'] : array();
 		}
 
-		$response = $api->getLoyaltyAccountList( array( 'customerId' => $crm_id ) );
+		// Покупателя не удалось сопоставить с карточкой CRM (или у карточки
+		// нет участия) — ищем участие прямо по телефону: баллы в CRM живут
+		// на счёте программы, и номер там свой.
+		if ( ! $accounts ) {
+			$found = self::loyalty_by_phone( $user_id );
 
-		if ( ! $response instanceof WC_Retailcrm_Response || ! $response->isSuccessful() ) {
-			self::log( 'Не удалось получить участие в программе лояльности', array( 'user_id' => $user_id ) );
-
-			return self::empty_account( 'error' );
+			if ( $found ) {
+				$accounts = array( $found );
+			}
 		}
-
-		$accounts = $response->offsetExists( 'loyaltyAccounts' ) ? (array) $response['loyaltyAccounts'] : array();
 
 		if ( ! $accounts ) {
 			return self::empty_account( 'none' );
@@ -843,6 +910,115 @@ class VL_Account_RetailCRM {
 		}
 
 		return true;
+	}
+
+	/* ------------------------------------------------------------------
+	 * Заказы покупателя в CRM
+	 * ------------------------------------------------------------------ */
+
+	/**
+	 * История заказов покупателя из CRM.
+	 *
+	 * Нужна для заказов, которых нет на сайте: оформленных офлайн, по телефону
+	 * или перенесённых в CRM из другой системы. Заказы сайта отдаёт сам
+	 * WooCommerce — они узнаются по externalId и в список не попадают.
+	 *
+	 * @param int $user_id Пользователь.
+	 * @param int $limit   Сколько заказов.
+	 * @return array Список заказов: number, date, status, total, items.
+	 */
+	public static function orders( $user_id, $limit = 20 ) {
+		$user_id = (int) $user_id;
+
+		if ( ! $user_id || ! self::enabled() || ! VL_Account_Settings::get( 'crm_orders_history', 1 ) ) {
+			return array();
+		}
+
+		$key    = 'vlacc_crm_orders_' . (int) get_option( self::GENERATION_OPTION, 1 ) . '_' . $user_id;
+		$cached = get_transient( $key );
+
+		if ( is_array( $cached ) ) {
+			return $cached;
+		}
+
+		$api    = self::api();
+		$crm_id = self::crm_customer_id( $user_id );
+
+		if ( ! $api || ! $crm_id || ! is_callable( array( $api, 'ordersList' ) ) ) {
+			return array();
+		}
+
+		$response = $api->ordersList( array( 'customerId' => $crm_id ), 1, min( 100, (int) $limit ) );
+
+		if ( ! $response instanceof WC_Retailcrm_Response || ! $response->isSuccessful() ) {
+			self::log( 'Не удалось получить заказы покупателя из CRM', array( 'user_id' => $user_id ) );
+
+			return array();
+		}
+
+		$raw    = $response->offsetExists( 'orders' ) ? (array) $response['orders'] : array();
+		$orders = array();
+
+		foreach ( $raw as $order ) {
+			// Заказ сайта — его и так показывает WooCommerce.
+			if ( ! empty( $order['externalId'] ) ) {
+				continue;
+			}
+
+			$items = 0;
+
+			foreach ( (array) ( isset( $order['items'] ) ? $order['items'] : array() ) as $item ) {
+				$items += isset( $item['quantity'] ) ? (int) $item['quantity'] : 1;
+			}
+
+			$orders[] = array(
+				'number' => isset( $order['number'] ) ? (string) $order['number'] : (string) ( isset( $order['id'] ) ? $order['id'] : '' ),
+				'date'   => isset( $order['createdAt'] ) ? (string) $order['createdAt'] : '',
+				'status' => isset( $order['status'] ) ? (string) $order['status'] : '',
+				'total'  => isset( $order['totalSumm'] ) ? (float) $order['totalSumm'] : 0.0,
+				'items'  => $items,
+			);
+		}
+
+		$orders = apply_filters( 'vlacc_crm_orders', $orders, $user_id );
+
+		if ( self::cache_ttl() > 0 ) {
+			set_transient( $key, $orders, self::cache_ttl() );
+		}
+
+		return $orders;
+	}
+
+	/**
+	 * Человеческие названия статусов заказов CRM.
+	 *
+	 * @return array Код => название.
+	 */
+	public static function order_statuses() {
+		$cached = get_transient( 'vlacc_crm_statuses' );
+
+		if ( is_array( $cached ) ) {
+			return $cached;
+		}
+
+		$api = self::api();
+
+		if ( ! $api || ! is_callable( array( $api, 'statusesList' ) ) ) {
+			return array();
+		}
+
+		$response = $api->statusesList();
+		$statuses = array();
+
+		if ( $response instanceof WC_Retailcrm_Response && $response->isSuccessful() && $response->offsetExists( 'statuses' ) ) {
+			foreach ( (array) $response['statuses'] as $code => $status ) {
+				$statuses[ $code ] = isset( $status['name'] ) ? (string) $status['name'] : (string) $code;
+			}
+		}
+
+		set_transient( 'vlacc_crm_statuses', $statuses, DAY_IN_SECONDS );
+
+		return $statuses;
 	}
 
 	/* ------------------------------------------------------------------
