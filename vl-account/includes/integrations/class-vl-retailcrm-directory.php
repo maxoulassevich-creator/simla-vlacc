@@ -799,6 +799,28 @@ class VL_Account_RetailCRM_Directory {
 	}
 
 	/**
+	 * Строки снимка с этим адресом почты.
+	 *
+	 * @param string $email Адрес.
+	 * @return array
+	 */
+	public static function rows_by_email( $email ) {
+		global $wpdb;
+
+		$email = strtolower( trim( (string) $email ) );
+
+		if ( '' === $email || ! VL_Account_Settings::get( 'crm_directory', 1 ) || ! self::ready() ) {
+			return array();
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared
+		return (array) $wpdb->get_results(
+			$wpdb->prepare( 'SELECT * FROM ' . self::table() . ' WHERE email = %s LIMIT 20', $email ),
+			ARRAY_A
+		);
+	}
+
+	/**
 	 * Карточки CRM с этим телефоном, от свежей к старой.
 	 *
 	 * @param string $phone Номер.

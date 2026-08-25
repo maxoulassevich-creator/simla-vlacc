@@ -32,6 +32,56 @@ class Fake_Orders {
 
 class_alias( 'Fake_Orders', 'VL_Account_Orders' );
 
+class WC_Order {
+	public $id;
+	public $customer_id;
+	public $email;
+	public $phone;
+	public function __construct( $id, $customer_id, $email, $phone ) {
+		$this->id          = $id;
+		$this->customer_id = $customer_id;
+		$this->email       = $email;
+		$this->phone       = $phone;
+	}
+	public function get_id() { return $this->id; }
+	public function get_customer_id() { return $this->customer_id; }
+	public function get_billing_email() { return $this->email; }
+	public function get_billing_phone() { return $this->phone; }
+}
+
+$GLOBALS['orders'] = array();
+
+function wc_get_orders( $args = array() ) {
+	$found = array();
+
+	foreach ( $GLOBALS['orders'] as $order ) {
+		if ( isset( $args['billing_email'] ) && strtolower( $order->get_billing_email() ) !== strtolower( $args['billing_email'] ) ) {
+			continue;
+		}
+
+		$found[] = $order;
+	}
+
+	return $found;
+}
+
+/** Снимок базы CRM: нужен только поиск по адресу. */
+class Fake_Directory {
+	public static $rows = array();
+
+	public static function rows_by_email( $email ) {
+		$found = array();
+
+		foreach ( self::$rows as $row ) {
+			if ( strtolower( $row['email'] ) === strtolower( $email ) ) { $found[] = $row; }
+		}
+
+		return $found;
+	}
+}
+
+class_alias( 'Fake_Directory', 'VL_Account_RetailCRM_Directory' );
+
 require_once VLACC_PATH . 'includes/class-vl-email-confirm.php';
 
 $GLOBALS['users']    = array();
@@ -54,8 +104,9 @@ add_action(
  *
  * @param int    $id    ID.
  * @param string $email Почта.
+ * @param string $phone Подтверждённый номер.
  */
-function user( $id, $email ) {
+function user( $id, $email, $phone = '' ) {
 	$GLOBALS['users'][ $id ] = new WP_User(
 		array(
 			'ID'         => $id,
@@ -63,6 +114,10 @@ function user( $id, $email ) {
 			'user_login' => 'user' . $id,
 		)
 	);
+
+	if ( '' !== $phone ) {
+		update_user_meta( $id, VL_Account_User::META_PHONE, $phone );
+	}
 }
 
 echo "\n== 1. Технический адрес меняется сразу ==\n";
@@ -100,6 +155,45 @@ $result = VL_Account_Email_Confirm::attach_now( 12, 'не-почта' );
 
 check( 'мусор вместо адреса отклонён', is_wp_error( $result ) && 'vlacc_bad_email' === $result->get_error_code() );
 check( 'несуществующий аккаунт отклонён', is_wp_error( VL_Account_Email_Confirm::attach_now( 999, 'x@example.com' ) ) );
+
+echo "\n== 4. За адресом стоят чужие данные ==\n";
+
+// Гостевой заказ с этим адресом оформлен с другого номера — адрес не свой.
+user( 20, '79001111111@phone.site', '79001111111' );
+$GLOBALS['orders'][] = new WC_Order( 601, 0, 'guest@example.com', '+7 (999) 222-33-44' );
+
+$result = VL_Account_Email_Confirm::attach_now( 20, 'guest@example.com' );
+
+check( 'адрес с чужими гостевыми заказами отклонён', is_wp_error( $result ), is_wp_error( $result ) ? '' : 'записан!' );
+check( 'заказы остались у гостя', 0 === (int) $GLOBALS['orders'][0]->get_customer_id() );
+check( 'почта аккаунта не тронута', '79001111111@phone.site' === $GLOBALS['users'][20]->user_email );
+
+// Тот же адрес, но заказ оформлен с того же номера — это тот же человек.
+$GLOBALS['orders'] = array( new WC_Order( 602, 0, 'same@example.com', '+7 (900) 111-11-11' ) );
+
+check( 'свой же гостевой заказ не мешает', true === VL_Account_Email_Confirm::attach_now( 20, 'same@example.com' ) );
+
+// Заказ другого зарегистрированного покупателя.
+user( 21, '79002222222@phone.site', '79002222222' );
+$GLOBALS['orders'] = array( new WC_Order( 603, 777, 'client@example.com', '+7 (900) 222-22-22' ) );
+
+check( 'адрес из заказа другого аккаунта отклонён', is_wp_error( VL_Account_Email_Confirm::attach_now( 21, 'client@example.com' ) ) );
+
+// Карточка CRM с этим адресом и другим номером.
+user( 22, '79003333333@phone.site', '79003333333' );
+$GLOBALS['orders']    = array();
+Fake_Directory::$rows = array(
+	array( 'crm_id' => 500, 'email' => 'crmclient@example.com', 'phone' => '79998887766', 'external_id' => 0 ),
+);
+
+check( 'адрес чужой карточки CRM отклонён', is_wp_error( VL_Account_Email_Confirm::attach_now( 22, 'crmclient@example.com' ) ) );
+
+// Карточка CRM с этим же номером — это он сам.
+Fake_Directory::$rows = array(
+	array( 'crm_id' => 501, 'email' => 'mycard@example.com', 'phone' => '79003333333', 'external_id' => 0 ),
+);
+
+check( 'своя карточка CRM не мешает', true === VL_Account_Email_Confirm::attach_now( 22, 'mycard@example.com' ) );
 
 echo "\n------------------------------------------------------------\n";
 echo "Пройдено: $pass, провалено: $fail\n";

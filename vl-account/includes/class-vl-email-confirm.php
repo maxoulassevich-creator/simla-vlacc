@@ -366,13 +366,83 @@ class VL_Account_Email_Confirm {
 	}
 
 	/**
+	 * За адресом стоит кто-то ещё.
+	 *
+	 * Проверка перед тем, как записать адрес без письма. Опасен не сам факт
+	 * чужого адреса — опасно то, что к адресу привязаны чужие данные: гостевые
+	 * заказы сайта подтянутся в кабинет, а карточка CRM с этим адресом отдаст
+	 * чужую историю и баллы. Поэтому адрес, о котором сайту или CRM уже
+	 * что-то известно, записывается только по ссылке из письма.
+	 *
+	 * @param string $email   Адрес.
+	 * @param string $phone   Подтверждённый номер владельца аккаунта.
+	 * @param int    $user_id Аккаунт.
+	 * @return string Пусто, если адрес ничей; иначе причина.
+	 */
+	public static function email_belongs_to_someone( $email, $phone = '', $user_id = 0 ) {
+		$email = strtolower( sanitize_email( $email ) );
+		$phone = VL_Account_Phone::normalize( $phone );
+
+		$owner = email_exists( $email );
+
+		if ( $owner && (int) $owner !== (int) $user_id ) {
+			return __( 'адрес занят другим аккаунтом', 'vl-account' );
+		}
+
+		// Гостевые заказы с этим адресом: если их оформлял не владелец номера,
+		// адрес чужой — иначе его заказы уехали бы в чужой кабинет.
+		if ( vlacc_is_woo() && function_exists( 'wc_get_orders' ) ) {
+			$orders = wc_get_orders(
+				array(
+					'billing_email' => $email,
+					'limit'         => 20,
+					'type'          => 'shop_order',
+					'return'        => 'objects',
+				)
+			);
+
+			foreach ( (array) $orders as $order ) {
+				if ( ! $order instanceof WC_Order || strtolower( $order->get_billing_email() ) !== $email ) {
+					continue;
+				}
+
+				$customer_id = (int) $order->get_customer_id();
+
+				if ( $customer_id && $customer_id !== (int) $user_id ) {
+					return __( 'на адрес оформлены заказы другого покупателя', 'vl-account' );
+				}
+
+				if ( ! $customer_id && '' !== $phone && VL_Account_Phone::normalize( $order->get_billing_phone() ) !== $phone ) {
+					return __( 'на адрес есть гостевые заказы с другим телефоном', 'vl-account' );
+				}
+			}
+		}
+
+		// Карточка CRM с этим адресом и другим номером — тоже чужая история.
+		if ( class_exists( 'VL_Account_RetailCRM_Directory' ) ) {
+			foreach ( VL_Account_RetailCRM_Directory::rows_by_email( $email ) as $row ) {
+				$card_phone = isset( $row['phone'] ) ? (string) $row['phone'] : '';
+
+				if ( '' !== $card_phone && '' !== $phone && $card_phone !== $phone ) {
+					return __( 'в CRM этот адрес у клиента с другим номером', 'vl-account' );
+				}
+
+				if ( ! empty( $row['external_id'] ) && (int) $row['external_id'] !== (int) $user_id ) {
+					return __( 'в CRM этот адрес привязан к другому аккаунту сайта', 'vl-account' );
+				}
+			}
+		}
+
+		return '';
+	}
+
+	/**
 	 * Записать адрес сразу, без письма с подтверждением.
 	 *
-	 * Подтверждение по ссылке нужно там, где адресом можно забрать чужой
-	 * кабинет. Здесь этого нет: аккаунт заведён входом по SMS, своей почты
-	 * у него ещё не было, а адрес покупатель ввёл сам в своём же оформлении
-	 * заказа, уже войдя по коду. Просить его после этого лезть в почту —
-	 * лишний шаг, из-за которого в CRM так и остаётся клиент без адреса.
+	 * Можно только тогда, когда адрес ничей: аккаунт заведён входом по SMS,
+	 * своей почты у него не было, а введённый адрес сайту и CRM неизвестен.
+	 * Если за адресом стоит чужая история — заказы, карточка CRM, другой
+	 * аккаунт, — остаётся обычный путь с подтверждением по ссылке.
 	 *
 	 * @param int    $user_id Пользователь.
 	 * @param string $email   Адрес.
@@ -395,10 +465,19 @@ class VL_Account_Email_Confirm {
 			return new WP_Error( 'vlacc_has_email', __( 'У аккаунта уже есть подтверждённый адрес.', 'vl-account' ) );
 		}
 
-		$owner = email_exists( $email );
+		$taken = self::email_belongs_to_someone( $email, VL_Account_User::get_phone( $user_id ), $user_id );
 
-		if ( $owner && (int) $owner !== (int) $user_id ) {
-			return new WP_Error( 'vlacc_email_taken', __( 'Этот e-mail уже используется другим аккаунтом.', 'vl-account' ) );
+		if ( '' !== $taken ) {
+			vlacc_log(
+				'Адрес из заказа отправлен на подтверждение по ссылке',
+				array(
+					'user_id' => $user_id,
+					'email'   => vlacc_mask_email( $email ),
+					'причина' => $taken,
+				)
+			);
+
+			return new WP_Error( 'vlacc_email_taken', $taken );
 		}
 
 		$updated = wp_update_user(
