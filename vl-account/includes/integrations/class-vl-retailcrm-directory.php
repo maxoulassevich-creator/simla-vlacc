@@ -547,20 +547,42 @@ class VL_Account_RetailCRM_Directory {
 	}
 
 	/**
-	 * Отметить телефоны, на которых сходится несколько разных аккаунтов.
+	 * Телефоны, на которых в CRM намешаны разные люди.
+	 *
+	 * Признак — на одном номере карточки с разными почтами или с разными
+	 * externalId. Такому номеру верить нельзя: по нему нельзя ни пускать
+	 * в кабинет, ни дописывать его в профили аккаунтов.
+	 *
+	 * @return array Номера.
 	 */
-	protected static function mark_conflicts() {
+	public static function mixed_phones() {
 		global $wpdb;
+
+		if ( ! self::ready() ) {
+			return array();
+		}
 
 		$table = self::table();
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared
-		$phones = $wpdb->get_col(
+		return (array) $wpdb->get_col(
 			"SELECT phone FROM {$table}
-			WHERE phone <> '' AND user_id > 0
+			WHERE phone <> ''
 			GROUP BY phone
-			HAVING COUNT(DISTINCT user_id) > 1"
+			HAVING COUNT(DISTINCT NULLIF(email, '')) > 1
+				OR COUNT(DISTINCT NULLIF(external_id, 0)) > 1
+				OR COUNT(DISTINCT NULLIF(user_id, 0)) > 1"
 		);
+	}
+
+	/**
+	 * Отметить телефоны, на которых сходится несколько разных людей.
+	 */
+	protected static function mark_conflicts() {
+		global $wpdb;
+
+		$table  = self::table();
+		$phones = self::mixed_phones();
 
 		foreach ( (array) $phones as $phone ) {
 			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
@@ -568,7 +590,7 @@ class VL_Account_RetailCRM_Directory {
 				$table,
 				array(
 					'status' => 'conflict',
-					'note'   => 'несколько аккаунтов',
+					'note'   => 'на номере разные люди',
 				),
 				array( 'phone' => $phone )
 			);
@@ -659,8 +681,21 @@ class VL_Account_RetailCRM_Directory {
 			}
 		}
 
-		$best['crm_ids']  = array_values( array_unique( array_filter( array_map( 'intval', wp_list_pluck( $rows, 'crm_id' ) ) ) ) );
-		$best['user_ids'] = array_values( array_unique( array_filter( array_map( 'intval', wp_list_pluck( $rows, 'user_id' ) ) ) ) );
+		$best['crm_ids']      = array_values( array_unique( array_filter( array_map( 'intval', wp_list_pluck( $rows, 'crm_id' ) ) ) ) );
+		$best['user_ids']     = array_values( array_unique( array_filter( array_map( 'intval', wp_list_pluck( $rows, 'user_id' ) ) ) ) );
+		$best['external_ids'] = array_values( array_unique( array_filter( array_map( 'intval', wp_list_pluck( $rows, 'external_id' ) ) ) ) );
+
+		$emails = array();
+
+		foreach ( $rows as $row ) {
+			$email = isset( $row['email'] ) ? strtolower( trim( (string) $row['email'] ) ) : '';
+
+			if ( '' !== $email ) {
+				$emails[ $email ] = $email;
+			}
+		}
+
+		$best['emails'] = array_values( $emails );
 
 		// Телефон разошёлся по разным аккаунтам — выбор делает
 		// VL_Account_Identity: там видно, какие из аккаунтов живые.
@@ -669,6 +704,42 @@ class VL_Account_RetailCRM_Directory {
 		}
 
 		return $best;
+	}
+
+	/**
+	 * Номер принадлежит нескольким разным людям.
+	 *
+	 * Склеивать карточки можно только тогда, когда это карточки **одного**
+	 * человека. Если на одном номере сидят разные почты или разные externalId,
+	 * значит в базе намешаны разные покупатели: кто-то дал чужой номер, номер
+	 * переоформили, менеджер оформлял заказ со своего телефона. Пускать по
+	 * такому номеру в чужой кабинет нельзя ни при каких условиях — это хуже,
+	 * чем показать пустой кабинет.
+	 *
+	 * @param array $row Склеенная строка справочника.
+	 * @return string Пусто, если номер принадлежит одному человеку; иначе причина.
+	 */
+	public static function conflict_reason( $row ) {
+		$emails    = isset( $row['emails'] ) ? (array) $row['emails'] : array();
+		$externals = isset( $row['external_ids'] ) ? (array) $row['external_ids'] : array();
+
+		if ( count( $emails ) > 1 ) {
+			return sprintf(
+				/* translators: %s — список адресов. */
+				__( 'на номере карточки разных людей: %s', 'vl-account' ),
+				implode( ', ', array_slice( $emails, 0, 5 ) )
+			);
+		}
+
+		if ( count( $externals ) > 1 ) {
+			return sprintf(
+				/* translators: %s — список аккаунтов. */
+				__( 'карточки номера привязаны к разным аккаунтам: %s', 'vl-account' ),
+				implode( ', ', array_slice( $externals, 0, 5 ) )
+			);
+		}
+
+		return '';
 	}
 
 	/**
@@ -1144,8 +1215,10 @@ class VL_Account_RetailCRM_Directory {
 			foreach ( $accounts as $account ) {
 				$number = isset( $account['phoneNumber'] ) ? $account['phoneNumber'] : '';
 
-				// Фильтр мог быть проигнорирован — сверяем номер сами.
-				if ( '' !== $number && VL_Account_Phone::normalize( $number ) !== $phone ) {
+				// Фильтр CRM мог быть проигнорирован — сверяем номер сами, и
+				// счёт без номера тоже не берём: раньше такой «безымянный» счёт
+				// проходил проверку и приводил к чужому покупателю.
+				if ( '' === $number || VL_Account_Phone::normalize( $number ) !== $phone ) {
 					continue;
 				}
 
@@ -1338,6 +1411,32 @@ class VL_Account_RetailCRM_Directory {
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared
 		return (array) $wpdb->get_results( $wpdb->prepare( $sql, $params ), ARRAY_A );
+	}
+
+	/**
+	 * Забыть все карточки одного номера.
+	 *
+	 * Нужно, когда в CRM на номере намешаны разные люди: пока такие строки
+	 * лежат в снимке, поиск по номеру будет натыкаться на них снова и снова.
+	 *
+	 * @param string $phone Номер в любом виде.
+	 * @return int Сколько строк удалено.
+	 */
+	public static function forget_phone( $phone ) {
+		global $wpdb;
+
+		$phone = VL_Account_Phone::normalize( $phone );
+
+		if ( '' === $phone || ! self::ready() ) {
+			return 0;
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$deleted = $wpdb->delete( self::table(), array( 'phone' => $phone ) );
+
+		self::flush_cache();
+
+		return (int) $deleted;
 	}
 
 	/**

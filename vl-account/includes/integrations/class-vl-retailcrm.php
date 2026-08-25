@@ -482,7 +482,12 @@ class VL_Account_RetailCRM {
 
 		// Сначала спрашиваем CRM (снимок мог устареть), потом выбираем из
 		// карточек этого телефона ту, что относится к нашему аккаунту.
-		VL_Account_RetailCRM_Directory::find_by_phone( $phone );
+		$found = VL_Account_RetailCRM_Directory::find_by_phone( $phone );
+
+		// На номере карточки разных людей — привязывать нечего и опасно.
+		if ( $found && '' !== VL_Account_RetailCRM_Directory::conflict_reason( $found ) ) {
+			return 0;
+		}
 
 		$row = VL_Account_RetailCRM_Directory::row_for_user( $phone, $user_id );
 
@@ -546,9 +551,16 @@ class VL_Account_RetailCRM {
 			return false;
 		}
 
+		$rows = VL_Account_RetailCRM_Directory::rows_by_phone( $phone );
+
+		// На номере карточки разных людей — чужую карточку не передаём.
+		if ( '' !== VL_Account_RetailCRM_Directory::conflict_reason( VL_Account_RetailCRM_Directory::combine( $rows ) ) ) {
+			return false;
+		}
+
 		$orphan = 0;
 
-		foreach ( VL_Account_RetailCRM_Directory::rows_by_phone( $phone ) as $row ) {
+		foreach ( $rows as $row ) {
 			$external = (int) $row['external_id'];
 
 			// У выжившего своя карточка — вторую к нему не привязать.

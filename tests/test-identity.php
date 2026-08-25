@@ -316,6 +316,14 @@ class Fake_Directory {
 	public static function find_by_phone( $phone ) { return self::$row; }
 	public static function match_row( $row ) { ++self::$matched; return 'matched'; }
 	public static function rows_by_phone( $phone ) { return self::$row ? array( self::$row ) : array(); }
+	public static function combine( $rows ) { $rows = array_values( (array) $rows ); return $rows ? $rows[0] : false; }
+	/** Те же правила, что в настоящем справочнике. */
+	public static function conflict_reason( $row ) {
+		if ( count( (array) ( $row['emails'] ?? array() ) ) > 1 ) { return 'разные почты'; }
+		if ( count( (array) ( $row['external_ids'] ?? array() ) ) > 1 ) { return 'разные аккаунты'; }
+
+		return '';
+	}
 	public static function crm_ids_by_phone( $phone ) { return self::$row ? array( (int) self::$row['crm_id'] ) : array(); }
 	public static function flush_cache() {}
 }
@@ -430,13 +438,12 @@ $row = VL_Account_Identity::find_in_crm( '79261234567' );
 
 check( 'без живых берём самую старую пустышку', $row && 60 === (int) $row['user_id'], print_r( $row, true ) );
 
-// Два живых аккаунта: выигрывает тот, где заказов больше, случай — в журнал.
+// Два живых аккаунта: выбрать нельзя — чужой кабинет хуже пустого.
 reset_world();
 make_user( 62, 'first@example.com' );
 make_user( 63, 'second@example.com' );
 
 $GLOBALS['orders'][] = new WC_Order( 71, 63, '+7 926 123-45-67', 'second@example.com' );
-$GLOBALS['orders'][] = new WC_Order( 72, 63, '+7 926 123-45-67', 'second@example.com' );
 
 Fake_Directory::$row = array(
 	'id'          => 12,
@@ -456,8 +463,54 @@ foreach ( $GLOBALS['log'] as $entry ) {
 	if ( false !== mb_strpos( $entry[0], 'conflict' ) ) { $conflict = true; }
 }
 
-check( 'из двух живых берём аккаунт с заказами', $row && 63 === (int) $row['user_id'], print_r( $row, true ) );
-check( 'выбор записан в журнал', $conflict, print_r( $GLOBALS['log'], true ) );
+check( 'из двух живых не выбираем ни одного', false === $row, print_r( $row, true ) );
+check( 'случай записан в журнал', $conflict, print_r( $GLOBALS['log'], true ) );
+
+// Карточки номера принадлежат разным людям — номер не годится совсем.
+reset_world();
+make_user( 64, 'real-owner@example.com' );
+
+Fake_Directory::$row = array(
+	'id'           => 13,
+	'crm_id'       => 707,
+	'external_id'  => 64,
+	'phone'        => '79261234567',
+	'email'        => 'real-owner@example.com',
+	'user_id'      => 64,
+	'user_ids'     => array( 64 ),
+	'emails'       => array( 'real-owner@example.com', 'somebody-else@example.com' ),
+	'external_ids' => array( 64 ),
+	'status'       => 'matched',
+);
+
+$row      = VL_Account_Identity::find_in_crm( '79261234567' );
+$conflict = false;
+
+foreach ( $GLOBALS['log'] as $entry ) {
+	if ( false !== mb_strpos( $entry[0], 'conflict' ) ) { $conflict = true; }
+}
+
+check( 'разные люди на одном номере — не пускаем никуда', false === $row, print_r( $row, true ) );
+check( 'и это видно в журнале', $conflict );
+
+// Одна почта на всех карточках — обычный случай, работает как раньше.
+reset_world();
+make_user( 65, 'one-person@example.com' );
+
+Fake_Directory::$row = array(
+	'id'           => 14,
+	'crm_id'       => 708,
+	'external_id'  => 65,
+	'phone'        => '79261234567',
+	'email'        => 'one-person@example.com',
+	'user_id'      => 65,
+	'user_ids'     => array( 65 ),
+	'emails'       => array( 'one-person@example.com' ),
+	'external_ids' => array( 65 ),
+	'status'       => 'matched',
+);
+
+check( 'один человек — аккаунт находится', 65 === (int) VL_Account_Identity::find_in_crm( '79261234567' )['user_id'] );
 
 VL_Account_Settings::update( array( 'identity_crm' => 0, 'identity_orders' => 1 ) );
 

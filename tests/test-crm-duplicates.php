@@ -62,6 +62,19 @@ class Fake_WPDB {
 
 		return 1;
 	}
+	public function delete( $table, $where ) {
+		$before = count( $this->rows );
+
+		foreach ( $this->rows as $i => $row ) {
+			foreach ( $where as $key => $value ) {
+				if ( (string) ( $row[ $key ] ?? '' ) === (string) $value ) { unset( $this->rows[ $i ] ); }
+			}
+		}
+
+		$this->rows = array_values( $this->rows );
+
+		return $before - count( $this->rows );
+	}
 	public function query( $sql ) { $this->rows = array(); return 1; }
 }
 
@@ -237,6 +250,78 @@ $pick = VL_Account_RetailCRM::pick_loyalty(
 );
 check( 'приветственная сумма берётся из настроек', 2000 === (int) $pick['id'], print_r( $pick, true ) );
 VL_Account_Settings::update( array( 'crm_welcome_bonus' => 1000 ) );
+
+echo "\n== 4.1. Разные люди на одном номере ==\n";
+
+// Карточки с разными почтами — это разные люди, номеру верить нельзя.
+$mixed = VL_Account_RetailCRM_Directory::combine(
+	array(
+		card( array( 'crm_id' => 8698, 'email' => 'smirnova@example.com', 'external_id' => 1223 ) ),
+		card( array( 'crm_id' => 9638, 'email' => 'aleksandr@example.com', 'external_id' => 1620 ) ),
+	)
+);
+
+check( 'разные почты — номер негоден', '' !== VL_Account_RetailCRM_Directory::conflict_reason( $mixed ), print_r( $mixed, true ) );
+check( 'в причине названы адреса', false !== mb_strpos( VL_Account_RetailCRM_Directory::conflict_reason( $mixed ), 'smirnova@example.com' ) );
+
+// Один человек: почта одна, карточек несколько — это норма.
+$same = VL_Account_RetailCRM_Directory::combine(
+	array(
+		card( array( 'crm_id' => 8698, 'email' => 'one@example.com', 'external_id' => 1223 ) ),
+		card( array( 'crm_id' => 9638, 'email' => '', 'external_id' => 1223 ) ),
+	)
+);
+
+check( 'одна почта на карточках — номер годен', '' === VL_Account_RetailCRM_Directory::conflict_reason( $same ), print_r( $same, true ) );
+
+// Разные externalId — тоже разные люди, даже если почт в карточках нет.
+$split = VL_Account_RetailCRM_Directory::combine(
+	array(
+		card( array( 'crm_id' => 8700, 'email' => '', 'external_id' => 1224 ) ),
+		card( array( 'crm_id' => 8704, 'email' => '', 'external_id' => 1225 ) ),
+	)
+);
+
+check( 'разные аккаунты в карточках — номер негоден', '' !== VL_Account_RetailCRM_Directory::conflict_reason( $split ) );
+
+echo "\n== 4.2. Счёт без номера телефона не берём ==\n";
+
+// Фильтр CRM по номеру иногда игнорируется: в ответ приходит чужой счёт,
+// у которого своего номера нет. Раньше такой счёт принимался за «наш».
+WC_Retailcrm_Proxy::$responses['getLoyaltyAccountList'] = new WC_Retailcrm_Response(
+	200,
+	'{"loyaltyAccounts":[
+		{"id":9001,"active":true,"amount":700,"customerId":8867},
+		{"id":9002,"active":true,"amount":250,"phoneNumber":"+79506488684","customerId":8868}
+	]}'
+);
+
+$api   = VL_Account_RetailCRM::api();
+$found = VL_Account_RetailCRM_Directory::loyalty_accounts_by_phone( $api, '79047767897' );
+
+check( 'чужие счета отброшены', array() === $found, print_r( $found, true ) );
+
+WC_Retailcrm_Proxy::$responses['getLoyaltyAccountList'] = new WC_Retailcrm_Response(
+	200,
+	'{"loyaltyAccounts":[{"id":9003,"active":true,"amount":1000,"phoneNumber":"+79047767897","customerId":9638}]}'
+);
+
+$found = VL_Account_RetailCRM_Directory::loyalty_accounts_by_phone( $api, '79047767897' );
+
+check( 'свой счёт находится', 1 === count( $found ) && 9003 === (int) $found[0]['id'], print_r( $found, true ) );
+
+echo "\n== 4.3. Карточки номера можно забыть ==\n";
+
+$GLOBALS['wpdb']->rows = array(
+	card( array( 'crm_id' => 8698 ) ),
+	card( array( 'crm_id' => 9638 ) ),
+	card( array( 'crm_id' => 7000, 'phone' => '79261234567' ) ),
+);
+
+$deleted = VL_Account_RetailCRM_Directory::forget_phone( '+7 (904) 776-78-97' );
+
+check( 'строки номера удалены', 2 === $deleted, (string) $deleted );
+check( 'чужой номер не тронут', 1 === count( $GLOBALS['wpdb']->rows ) );
 
 echo "\n== 5. Карточка объединённого аккаунта переходит выжившему ==\n";
 

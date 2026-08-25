@@ -552,6 +552,23 @@ class VL_Account_Identity {
 			}
 		}
 
+		// Карточки на номере принадлежат разным людям — по такому номеру не
+		// пускаем никуда и ничего из него не берём.
+		$reason = VL_Account_RetailCRM_Directory::conflict_reason( $row );
+
+		if ( '' !== $reason ) {
+			self::log(
+				'conflict',
+				array(
+					'phone'  => $phone,
+					'source' => 'crm',
+					'note'   => $reason,
+				)
+			);
+
+			return false;
+		}
+
 		// Один телефон у нескольких карточек CRM — данные уже склеены, остаётся
 		// выбрать, в какой из аккаунтов сайта пускать.
 		$row['candidates'] = self::crm_candidates( $row );
@@ -617,13 +634,12 @@ class VL_Account_Identity {
 	/**
 	 * Выбрать аккаунт из нескольких кандидатов.
 	 *
-	 * Раньше на такой развилке автоматика просто отказывалась работать, и
-	 * покупатель видел пустой кабинет. Теперь выбираем по понятному правилу:
+	 * Правило намеренно осторожное: чужой кабинет хуже пустого.
 	 *
 	 *   — живой аккаунт (со своей почтой и историей) важнее пустышки,
 	 *     заведённой входом по SMS;
-	 *   — если живых несколько, берём тот, где больше заказов, а при равенстве —
-	 *     заведённый раньше; запись об этом уходит в отчёт;
+	 *   — если живых несколько, не выбираем ни одного: это разные люди либо
+	 *     мусор в данных, случай уходит в отчёт;
 	 *   — если живых нет, берём самую старую пустышку: остальные к ней приклеятся.
 	 *
 	 * @param array  $ids   ID аккаунтов.
@@ -657,19 +673,16 @@ class VL_Account_Identity {
 		}
 
 		if ( count( $live ) > 1 ) {
-			$chosen = self::busiest( $live );
-
 			self::log(
 				'conflict',
 				array(
-					'phone'   => $phone,
-					'user_id' => $chosen,
-					'source'  => 'crm',
-					'note'    => 'живых аккаунтов с этим телефоном: ' . implode( ', ', $live ) . '; выбран ' . $chosen . ' (больше заказов)',
+					'phone'  => $phone,
+					'source' => 'crm',
+					'note'   => 'живых аккаунтов с этим телефоном несколько (' . implode( ', ', $live ) . ') — выбирать автоматически нельзя',
 				)
 			);
 
-			return $chosen;
+			return 0;
 		}
 
 		if ( $tech ) {
@@ -679,28 +692,6 @@ class VL_Account_Identity {
 		}
 
 		return 0;
-	}
-
-	/**
-	 * Аккаунт с наибольшим числом заказов; при равенстве — самый старый.
-	 *
-	 * @param array $ids ID аккаунтов.
-	 * @return int
-	 */
-	protected static function busiest( $ids ) {
-		$best  = 0;
-		$count = -1;
-
-		foreach ( $ids as $user_id ) {
-			$orders = self::orders_count( $user_id );
-
-			if ( $orders > $count || ( $orders === $count && $user_id < $best ) ) {
-				$best  = (int) $user_id;
-				$count = $orders;
-			}
-		}
-
-		return $best;
 	}
 
 	/**

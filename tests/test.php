@@ -207,6 +207,28 @@ class Fake_Directory {
 	public static function flush_cache() {}
 	public static function store( $customer ) { return 1; }
 
+	/** Те же правила, что в настоящем справочнике. */
+	public static function conflict_reason( $row ) {
+		if ( count( (array) ( $row['emails'] ?? array() ) ) > 1 ) { return 'разные почты'; }
+		if ( count( (array) ( $row['external_ids'] ?? array() ) ) > 1 ) { return 'разные аккаунты'; }
+
+		return '';
+	}
+
+	public static function combine( $rows ) {
+		$rows = array_values( (array) $rows );
+
+		if ( ! $rows ) {
+			return false;
+		}
+
+		$best                 = $rows[0];
+		$best['emails']       = array_values( array_unique( array_filter( wp_list_pluck( $rows, 'email' ) ) ) );
+		$best['external_ids'] = array_values( array_unique( array_filter( array_map( 'intval', wp_list_pluck( $rows, 'external_id' ) ) ) ) );
+
+		return $best;
+	}
+
 	public static function crm_ids_by_phone( $phone ) {
 		$ids = array();
 

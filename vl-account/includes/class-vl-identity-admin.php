@@ -108,9 +108,43 @@ class VL_Account_Identity_Admin {
 				VL_Account_RetailCRM_Directory::truncate();
 				$notice = 'cleared';
 				break;
+
+			case 'unlink':
+				$phone = isset( $_POST['phone'] ) ? sanitize_text_field( wp_unslash( $_POST['phone'] ) ) : '';
+				$users = isset( $_POST['users'] ) ? array_map( 'absint', (array) wp_unslash( $_POST['users'] ) ) : array();
+				$count = 0;
+
+				foreach ( $users as $user_id ) {
+					$count += self::unlink_phone( $user_id, $phone ) ? 1 : 0;
+				}
+
+				$notice = 'unlinked_' . $count;
+				break;
+
+			case 'forget':
+				$phone  = isset( $_POST['phone'] ) ? sanitize_text_field( wp_unslash( $_POST['phone'] ) ) : '';
+				$count  = VL_Account_RetailCRM_Directory::forget_phone( $phone );
+				$notice = 'forgot_' . $count;
+
+				VL_Account_Identity::log(
+					'forget',
+					array(
+						'phone'  => VL_Account_Phone::normalize( $phone ),
+						'source' => 'admin',
+						'note'   => 'карточки номера удалены из снимка: ' . $count,
+					)
+				);
+				break;
 		}
 
-		wp_safe_redirect( admin_url( 'admin.php?page=' . self::PAGE . '&vlacc_msg=' . rawurlencode( $notice ) ) );
+		$url = admin_url( 'admin.php?page=' . self::PAGE . '&vlacc_msg=' . rawurlencode( $notice ) );
+
+		// После разбора номера возвращаемся к его же проверке — видно результат.
+		if ( in_array( $action, array( 'unlink', 'forget' ), true ) && ! empty( $_POST['phone'] ) ) {
+			$url .= '&probe=' . rawurlencode( sanitize_text_field( wp_unslash( $_POST['phone'] ) ) );
+		}
+
+		wp_safe_redirect( $url );
 		exit;
 	}
 
@@ -131,11 +165,14 @@ class VL_Account_Identity_Admin {
 		);
 		$updated = 0;
 
+		// Номера, на которых в CRM намешаны разные люди, не разносим по профилям.
+		$mixed = array_flip( VL_Account_RetailCRM_Directory::mixed_phones() );
+
 		foreach ( $rows as $row ) {
 			$user_id = (int) $row['user_id'];
 			$phone   = VL_Account_Phone::normalize( $row['phone'] );
 
-			if ( ! $user_id || '' === $phone ) {
+			if ( ! $user_id || '' === $phone || isset( $mixed[ $phone ] ) ) {
 				continue;
 			}
 
@@ -182,6 +219,79 @@ class VL_Account_Identity_Admin {
 		}
 
 		return $updated;
+	}
+
+	/**
+	 * Аккаунты, у которых этот номер записан в профиле.
+	 *
+	 * @param string $phone Номер в любом виде.
+	 * @return array WP_User[].
+	 */
+	public static function phone_holders( $phone ) {
+		$phone = VL_Account_Phone::normalize( $phone );
+
+		if ( '' === $phone ) {
+			return array();
+		}
+
+		$users = get_users(
+			array(
+				'meta_key'   => VL_Account_User::META_PHONE, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
+				'meta_value' => $phone,                      // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value
+				'number'     => 20,
+			)
+		);
+
+		return is_array( $users ) ? $users : array();
+	}
+
+	/**
+	 * Снять номер с аккаунта.
+	 *
+	 * Разбор последствий неверного сопоставления: пока номер стоит в профиле,
+	 * вход по SMS будет приводить в этот аккаунт, что бы ни лежало в CRM.
+	 *
+	 * @param int    $user_id Аккаунт.
+	 * @param string $phone   Номер в любом виде.
+	 * @return bool
+	 */
+	public static function unlink_phone( $user_id, $phone ) {
+		$user_id = (int) $user_id;
+		$phone   = VL_Account_Phone::normalize( $phone );
+
+		if ( ! $user_id || '' === $phone ) {
+			return false;
+		}
+
+		if ( (string) get_user_meta( $user_id, VL_Account_User::META_PHONE, true ) !== $phone ) {
+			return false;
+		}
+
+		delete_user_meta( $user_id, VL_Account_User::META_PHONE );
+		delete_user_meta( $user_id, VL_Account_User::META_VERIFIED );
+
+		// Телефон плательщика трогаем только если это тот же номер.
+		if ( VL_Account_Phone::normalize( (string) get_user_meta( $user_id, 'billing_phone', true ) ) === $phone ) {
+			delete_user_meta( $user_id, 'billing_phone' );
+		}
+
+		VL_Account_Identity::log(
+			'unlink',
+			array(
+				'phone'   => $phone,
+				'user_id' => $user_id,
+				'source'  => 'admin',
+				'note'    => 'номер снят с аккаунта вручную',
+			)
+		);
+
+		VL_Account_Identity::flush_cache();
+
+		if ( class_exists( 'VL_Account_RetailCRM' ) ) {
+			VL_Account_RetailCRM::flush( $user_id );
+		}
+
+		return true;
 	}
 
 	/**
@@ -269,11 +379,31 @@ class VL_Account_Identity_Admin {
 			? implode( '; ', $cards )
 			: __( 'нет записи', 'vl-account' );
 
+		// 4.1. У кого этот номер записан в профиле — именно они перехватывают вход.
+		$holders = array();
+
+		foreach ( self::phone_holders( $normalized ) as $holder ) {
+			$holders[] = sprintf( '#%d — %s (%s)', $holder->ID, $holder->user_login, $holder->user_email );
+		}
+
+		$report[ __( 'Номер записан в профиле', 'vl-account' ) ] = $holders
+			? implode( '; ', $holders )
+			: __( 'ни у кого', 'vl-account' );
+
 		// 5. Что плагин соберёт из этих карточек и куда пустит покупателя.
 		$combined = VL_Account_RetailCRM_Directory::combine( $rows );
 
 		if ( $combined ) {
+			$reason     = VL_Account_RetailCRM_Directory::conflict_reason( $combined );
 			$candidates = VL_Account_Identity::crm_candidates( $combined );
+
+			$report[ __( 'Номер пригоден для поиска', 'vl-account' ) ] = '' === $reason
+				? __( 'да — карточки принадлежат одному человеку', 'vl-account' )
+				: sprintf(
+					/* translators: %s — причина. */
+					__( 'НЕТ: %s. По такому номеру плагин никуда не пускает и данные из CRM не берёт.', 'vl-account' ),
+					$reason
+				);
 
 			$report[ __( 'Склеенная карточка', 'vl-account' ) ] = sprintf(
 				'%s %s, %s, город %s, карточек: %d',
@@ -284,7 +414,7 @@ class VL_Account_Identity_Admin {
 				count( isset( $combined['crm_ids'] ) ? $combined['crm_ids'] : array() )
 			);
 
-			$chosen = VL_Account_Identity::pick_account( $candidates, $normalized );
+			$chosen = '' === $reason ? VL_Account_Identity::pick_account( $candidates, $normalized ) : 0;
 
 			$report[ __( 'Аккаунты-кандидаты', 'vl-account' ) ] = $candidates
 				? implode( ', ', $candidates ) . sprintf( ' → выбран %s', $chosen ? '#' . $chosen : __( 'ни один', 'vl-account' ) )
@@ -516,6 +646,22 @@ class VL_Account_Identity_Admin {
 			);
 		}
 
+		if ( 0 === strpos( $code, 'unlinked_' ) ) {
+			return sprintf(
+				/* translators: %d — сколько аккаунтов. */
+				__( 'Номер снят с аккаунтов: %d.', 'vl-account' ),
+				(int) substr( $code, 9 )
+			);
+		}
+
+		if ( 0 === strpos( $code, 'forgot_' ) ) {
+			return sprintf(
+				/* translators: %d — сколько строк снимка. */
+				__( 'Карточек номера удалено из снимка: %d.', 'vl-account' ),
+				(int) substr( $code, 7 )
+			);
+		}
+
 		$map = array(
 			'sync_started' => __( 'Сверка запущена. Данные подтягиваются пачками в фоне — обновляйте страницу.', 'vl-account' ),
 			'sync_stopped' => __( 'Сверка остановлена.', 'vl-account' ),
@@ -651,7 +797,7 @@ class VL_Account_Identity_Admin {
 			</form>
 
 			<?php if ( '' !== $probe ) : ?>
-				<table class="widefat striped" style="max-width:900px;margin-bottom:24px">
+				<table class="widefat striped" style="max-width:900px;margin-bottom:12px">
 					<tbody>
 						<?php foreach ( self::probe( $probe ) as $vl_label => $vl_value ) : ?>
 							<tr>
@@ -661,6 +807,44 @@ class VL_Account_Identity_Admin {
 						<?php endforeach; ?>
 					</tbody>
 				</table>
+
+				<?php $vl_holders = self::phone_holders( $probe ); ?>
+
+				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="max-width:900px;margin-bottom:24px">
+					<?php wp_nonce_field( 'vlacc_identity' ); ?>
+					<input type="hidden" name="action" value="vlacc_identity_action" />
+					<input type="hidden" name="phone" value="<?php echo esc_attr( $probe ); ?>" />
+
+					<?php if ( $vl_holders ) : ?>
+						<p><strong><?php esc_html_e( 'Снять номер с аккаунта:', 'vl-account' ); ?></strong></p>
+
+						<?php foreach ( $vl_holders as $vl_holder ) : ?>
+							<label style="display:block;margin-bottom:4px">
+								<input type="checkbox" name="users[]" value="<?php echo esc_attr( $vl_holder->ID ); ?>" />
+								<?php echo esc_html( sprintf( '#%d — %s (%s)', $vl_holder->ID, $vl_holder->user_login, $vl_holder->user_email ) ); ?>
+							</label>
+						<?php endforeach; ?>
+
+						<p>
+							<button class="button" name="do" value="unlink" onclick="return confirm('<?php echo esc_js( __( 'Снять номер с отмеченных аккаунтов? Сами аккаунты, заказы и баллы останутся на месте.', 'vl-account' ) ); ?>')">
+								<?php esc_html_e( 'Отвязать номер', 'vl-account' ); ?>
+							</button>
+							<button class="button" name="do" value="forget" onclick="return confirm('<?php echo esc_js( __( 'Удалить карточки этого номера из снимка базы CRM? В самой CRM ничего не изменится.', 'vl-account' ) ); ?>')">
+								<?php esc_html_e( 'Забыть карточки номера', 'vl-account' ); ?>
+							</button>
+						</p>
+					<?php else : ?>
+						<p>
+							<button class="button" name="do" value="forget" onclick="return confirm('<?php echo esc_js( __( 'Удалить карточки этого номера из снимка базы CRM? В самой CRM ничего не изменится.', 'vl-account' ) ); ?>')">
+								<?php esc_html_e( 'Забыть карточки номера', 'vl-account' ); ?>
+							</button>
+						</p>
+					<?php endif; ?>
+
+					<p class="description">
+						<?php esc_html_e( 'Разбор неверного сопоставления. «Отвязать номер» убирает телефон из профиля аккаунта — после этого вход по SMS больше не приводит в него. «Забыть карточки номера» удаляет строки этого телефона из снимка базы CRM: нужно, если в CRM на одном номере оказались разные люди. Данные в самой CRM ни одна из кнопок не меняет.', 'vl-account' ); ?>
+					</p>
+				</form>
 			<?php endif; ?>
 
 			<h2><?php esc_html_e( 'Журнал сопоставлений', 'vl-account' ); ?></h2>
