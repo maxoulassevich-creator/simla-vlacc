@@ -795,6 +795,34 @@ class VL_Account_RetailCRM_Directory {
 		return false;
 	}
 
+	/**
+	 * Записать в снимок, что карточка CRM привязана к аккаунту сайта.
+	 *
+	 * @param int $crm_id  Покупатель в CRM.
+	 * @param int $user_id Пользователь сайта.
+	 */
+	public static function set_external_id( $crm_id, $user_id ) {
+		global $wpdb;
+
+		if ( ! self::ready() ) {
+			return;
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$wpdb->update(
+			self::table(),
+			array(
+				'external_id' => (int) $user_id,
+				'user_id'     => (int) $user_id,
+				'status'      => 'matched',
+				'note'        => 'привязано по телефону',
+			),
+			array( 'crm_id' => (int) $crm_id )
+		);
+
+		self::flush_cache();
+	}
+
 	/* ------------------------------------------------------------------
 	 * Отчёт
 	 * ------------------------------------------------------------------ */

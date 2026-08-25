@@ -149,6 +149,7 @@ class VL_Account_Settings {
 			'identity_trust_crm_email' => 1,    // Почта из CRM считается подтверждённой.
 			'crm_directory'        => 1,        // Использовать локальный снимок базы CRM.
 			'crm_lookup_live'      => 1,        // Спрашивать CRM, если номера нет в снимке.
+			'crm_link_by_phone'    => 1,        // Привязывать карточку CRM к аккаунту по телефону.
 			'crm_sync_daily'       => 0,        // Обновлять снимок базы раз в сутки.
 
 			// Интеграция с плагином избранного WishSuite.

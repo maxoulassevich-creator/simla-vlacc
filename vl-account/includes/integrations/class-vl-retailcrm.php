@@ -311,9 +311,128 @@ class VL_Account_RetailCRM {
 
 		if ( $response instanceof WC_Retailcrm_Response && $response->isSuccessful() && ! empty( $response['customer']['id'] ) ) {
 			self::$crm_ids[ $user_id ] = (int) $response['customer']['id'];
+
+			return self::$crm_ids[ $user_id ];
 		}
 
+		// В CRM карточку могли завести руками — тогда externalId у неё нет,
+		// и по ID пользователя сайта она не находится. Ищем по телефону
+		// и привязываем карточку к аккаунту, чтобы связь была постоянной.
+		self::$crm_ids[ $user_id ] = self::link_by_phone( $user_id );
+
 		return self::$crm_ids[ $user_id ];
+	}
+
+	/**
+	 * Найти карточку CRM по телефону покупателя и привязать её к аккаунту.
+	 *
+	 * @param int $user_id Пользователь.
+	 * @return int ID покупателя в CRM или 0.
+	 */
+	public static function link_by_phone( $user_id ) {
+		if ( ! class_exists( 'VL_Account_RetailCRM_Directory' ) || ! VL_Account_Settings::get( 'crm_link_by_phone', 1 ) ) {
+			return 0;
+		}
+
+		$phone = VL_Account_User::get_phone( $user_id );
+
+		if ( '' === $phone ) {
+			return 0;
+		}
+
+		$row = VL_Account_RetailCRM_Directory::find_by_phone( $phone );
+
+		if ( ! $row || empty( $row['crm_id'] ) ) {
+			return 0;
+		}
+
+		// Телефон сошёлся на нескольких клиентах — молча выбирать нельзя.
+		if ( isset( $row['status'] ) && 'conflict' === $row['status'] ) {
+			return 0;
+		}
+
+		// Карточка уже привязана к другому аккаунту сайта — не перехватываем.
+		if ( ! empty( $row['external_id'] ) && (int) $row['external_id'] !== (int) $user_id ) {
+			return 0;
+		}
+
+		$crm_id = (int) $row['crm_id'];
+
+		if ( empty( $row['external_id'] ) ) {
+			self::assign_external_id( $crm_id, $user_id );
+		}
+
+		self::log(
+			'Карточка CRM привязана к аккаунту по телефону',
+			array(
+				'user_id' => $user_id,
+				'crm_id'  => $crm_id,
+			)
+		);
+
+		return $crm_id;
+	}
+
+	/**
+	 * Проставить карточке CRM externalId — ID пользователя сайта.
+	 *
+	 * После этого покупателя находят и наш мост, и сам плагин Simla.
+	 *
+	 * @param int $crm_id  Покупатель в CRM.
+	 * @param int $user_id Пользователь сайта.
+	 * @return bool
+	 */
+	public static function assign_external_id( $crm_id, $user_id ) {
+		$api = self::api();
+
+		if ( ! $api || ! $crm_id || ! $user_id ) {
+			return false;
+		}
+
+		$response = null;
+
+		// Штатный метод CRM для простановки externalId существующим клиентам.
+		if ( is_callable( array( $api, 'customersFixExternalIds' ) ) ) {
+			$response = $api->customersFixExternalIds(
+				array(
+					array(
+						'id'         => (int) $crm_id,
+						'externalId' => (int) $user_id,
+					),
+				)
+			);
+		}
+
+		if ( ! $response instanceof WC_Retailcrm_Response || ! $response->isSuccessful() ) {
+			$response = $api->customersEdit(
+				array(
+					'id'         => (int) $crm_id,
+					'externalId' => (int) $user_id,
+				),
+				'id'
+			);
+		}
+
+		$ok = $response instanceof WC_Retailcrm_Response && $response->isSuccessful();
+
+		if ( ! $ok ) {
+			self::log(
+				'Не удалось привязать карточку CRM к аккаунту',
+				array(
+					'user_id' => $user_id,
+					'crm_id'  => $crm_id,
+				)
+			);
+
+			return false;
+		}
+
+		// В снимке справочника связь тоже обновляем.
+		if ( class_exists( 'VL_Account_RetailCRM_Directory' ) ) {
+			VL_Account_RetailCRM_Directory::set_external_id( $crm_id, $user_id );
+		}
+
+		return true;
 	}
 
 	/**

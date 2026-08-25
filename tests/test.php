@@ -185,6 +185,88 @@ $data3 = apply_filters(
 check( 'дата регистрации переведена в местное время', '2026-08-23 22:00:00' === $data3['createdAt'], print_r( $data3, true ) );
 check( 'дубль телефона не добавлен', 1 === count( $data2['phones'] ), print_r( $data2['phones'], true ) );
 
+echo "\n== 9.1. Карточка CRM, заведённая руками ==\n";
+
+// Такая карточка не имеет externalId, по ID пользователя сайта не находится.
+class Fake_Directory {
+	public static $row = false;
+	public static function find_by_phone( $phone ) { return self::$row; }
+	public static function set_external_id( $crm_id, $user_id ) { $GLOBALS['log'][] = array( 'directory_link', $crm_id, $user_id ); }
+	public static function flush_cache() {}
+}
+
+class_alias( 'Fake_Directory', 'VL_Account_RetailCRM_Directory' );
+
+Fake_Directory::$row = array(
+	'crm_id'      => 900,
+	'external_id' => 0,
+	'phone'       => '79261234567',
+	'email'       => 'manual@example.com',
+	'status'      => 'matched',
+);
+
+update_user_meta( 3, VL_Account_User::META_PHONE, '79261234567' );
+
+// По externalId клиента нет.
+WC_Retailcrm_Proxy::$responses['customersGet']            = new WC_Retailcrm_Response( 404, '{}' );
+WC_Retailcrm_Proxy::$responses['customersFixExternalIds'] = new WC_Retailcrm_Response( 200, '{"success":true}' );
+
+VL_Account_RetailCRM::flush_all();
+$crm_id = VL_Account_RetailCRM::crm_customer_id( 3 );
+
+check( 'карточка найдена по телефону', 900 === $crm_id, (string) $crm_id );
+check( 'externalId проставлен в CRM', in_array( 'customersFixExternalIds', WC_Retailcrm_Proxy::$calls, true ), print_r( WC_Retailcrm_Proxy::$calls, true ) );
+
+$linked = false;
+
+foreach ( $GLOBALS['log'] as $entry ) {
+	if ( 'directory_link' === $entry[0] ) { $linked = true; }
+}
+
+check( 'связь записана в снимок', $linked );
+
+// Карточка уже привязана к другому аккаунту — не перехватываем.
+VL_Account_RetailCRM::flush_all();
+Fake_Directory::$row = array(
+	'crm_id'      => 901,
+	'external_id' => 777,
+	'phone'       => '79261234567',
+	'email'       => 'other@example.com',
+	'status'      => 'matched',
+);
+
+check( 'чужую карточку не забираем', 0 === VL_Account_RetailCRM::crm_customer_id( 3 ) );
+
+// Конфликт по телефону — тоже мимо.
+VL_Account_RetailCRM::flush_all();
+Fake_Directory::$row = array(
+	'crm_id'      => 902,
+	'external_id' => 0,
+	'phone'       => '79261234567',
+	'email'       => '',
+	'status'      => 'conflict',
+);
+
+check( 'конфликт по телефону — не привязываем', 0 === VL_Account_RetailCRM::crm_customer_id( 3 ) );
+
+// Настройка выключает привязку.
+VL_Account_Settings::update( array( 'crm_link_by_phone' => 0 ) );
+VL_Account_RetailCRM::flush_all();
+Fake_Directory::$row = array(
+	'crm_id'      => 903,
+	'external_id' => 0,
+	'phone'       => '79261234567',
+	'email'       => '',
+	'status'      => 'matched',
+);
+
+check( 'выключается настройкой', 0 === VL_Account_RetailCRM::crm_customer_id( 3 ) );
+VL_Account_Settings::update( array( 'crm_link_by_phone' => 1 ) );
+
+// Возвращаем ответ по externalId для следующих проверок.
+WC_Retailcrm_Proxy::$responses['customersGet'] = new WC_Retailcrm_Response( 200, '{"customer":{"id":77}}' );
+VL_Account_RetailCRM::flush_all();
+
 echo "\n== 10. Приоритет обработки заказа ==\n";
 check( 'приоритет 5 при активной интеграции', 5 === apply_filters( 'vlacc_checkout_hook_priority', 20 ) );
 VL_Account_Settings::update( array( 'crm_order_priority' => 0 ) );
