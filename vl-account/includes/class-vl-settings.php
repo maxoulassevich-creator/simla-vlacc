@@ -116,6 +116,7 @@ class VL_Account_Settings {
 			'email_on_register'   => 1,
 			'email_on_autocreate' => 1,
 			'email_confirm'       => 1,       // Просить подтвердить e-mail из заказа.
+			'email_from_checkout' => 1,       // Первый настоящий адрес из заказа записывать сразу.
 			'email_confirm_days'  => 7,       // Срок жизни ссылки подтверждения.
 
 			// Внешний вид.

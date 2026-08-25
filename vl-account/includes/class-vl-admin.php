@@ -732,6 +732,12 @@ class VL_Account_Admin {
 				__( 'Подтверждение e-mail из заказа', 'vl-account' ),
 				__( 'После заказа покупателю приходит второе, отдельное письмо со ссылкой подтверждения. Пока по ней не перешли, адрес к кабинету не привязывается — так нельзя записать на себя чужую почту.', 'vl-account' )
 			);
+			$this->checkbox(
+				'email_from_checkout',
+				$s,
+				__( 'Первый адрес из заказа — без подтверждения', 'vl-account' ),
+				__( 'Аккаунт заведён по SMS, своей почты у него ещё нет: адрес, который покупатель ввёл в своём же оформлении заказа, записывается сразу и уезжает в CRM. Подтверждать нечего — он вошёл по коду и ввёл адрес сам. Смена уже привязанного адреса по-прежнему идёт через письмо.', 'vl-account' )
+			);
 			$this->text( 'email_confirm_days', $s, __( 'Ссылка подтверждения живёт, дней', 'vl-account' ), '', 'number' );
 			?>
 		</table>
@@ -1634,7 +1640,7 @@ class VL_Account_Admin {
 			'sms'     => array( 'test_mode', 'debug_show_code' ),
 			'forms'   => array( 'passwordless', 'auto_register', 'ask_name', 'login_from_name', 'auth_marketing_box', 'show_telegram', 'gate_cart', 'consent_privacy', 'consent_marketing' ),
 			'account' => array( 'wishlist_on_product', 'profile_address', 'profile_shipping', 'ws_enabled', 'ws_two_way', 'ws_merge_guest', 'ws_hide_our_button', 'ws_size_buttons', 'sn_enabled', 'sn_show_sent', 'sn_match_email' ),
-			'orders'  => array( 'auto_create_account', 'attach_guest_orders', 'match_by_phone', 'email_on_register', 'email_on_autocreate', 'email_confirm', 'carts_enabled', 'autofill', 'autofill_fix_forms' ),
+			'orders'  => array( 'auto_create_account', 'attach_guest_orders', 'match_by_phone', 'email_on_register', 'email_on_autocreate', 'email_confirm', 'email_from_checkout', 'carts_enabled', 'autofill', 'autofill_fix_forms' ),
 			'crm'     => array( 'crm_enabled', 'crm_sync_customer', 'crm_sync_consents', 'crm_skip_tech_email', 'crm_order_priority', 'crm_loyalty_ui', 'crm_loyalty_auto', 'crm_hide_wc_loyalty', 'crm_credit_top', 'crm_promo_combine', 'crm_promo_hide_loyalty', 'crm_fix_coupon_email', 'identity_orders', 'identity_crm', 'crm_directory', 'crm_lookup_live', 'crm_link_by_phone', 'crm_orders_history', 'crm_sync_daily', 'identity_merge', 'identity_delete_merged', 'identity_trust_crm_email' ),
 			'design'  => array(),
 		);

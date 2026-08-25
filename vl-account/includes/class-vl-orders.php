@@ -269,14 +269,25 @@ class VL_Account_Orders {
 			}
 		}
 
-		// E-mail: если он отличается от адреса аккаунта — просим подтвердить.
 		$email = $order->get_billing_email();
 
-		if ( ! $email || ! VL_Account_Email_Confirm::enabled() ) {
+		if ( ! $email || strtolower( $email ) === strtolower( $user->user_email ) ) {
 			return;
 		}
 
-		if ( strtolower( $email ) === strtolower( $user->user_email ) ) {
+		// Аккаунт заведён по SMS и настоящей почты не имеет: адрес из своего же
+		// заказа записываем сразу. Подтверждать нечего — покупатель ввёл его,
+		// уже войдя по коду, а в CRM клиент без адреса выглядит неполным.
+		if ( ! VL_Account_User::has_real_email( $user ) && VL_Account_Settings::get( 'email_from_checkout', 1 ) ) {
+			$attached = VL_Account_Email_Confirm::attach_now( $user_id, $email );
+
+			if ( ! is_wp_error( $attached ) ) {
+				return;
+			}
+		}
+
+		// Настоящий адрес меняют только по ссылке из письма.
+		if ( ! VL_Account_Email_Confirm::enabled() ) {
 			return;
 		}
 

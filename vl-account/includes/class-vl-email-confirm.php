@@ -366,6 +366,73 @@ class VL_Account_Email_Confirm {
 	}
 
 	/**
+	 * Записать адрес сразу, без письма с подтверждением.
+	 *
+	 * Подтверждение по ссылке нужно там, где адресом можно забрать чужой
+	 * кабинет. Здесь этого нет: аккаунт заведён входом по SMS, своей почты
+	 * у него ещё не было, а адрес покупатель ввёл сам в своём же оформлении
+	 * заказа, уже войдя по коду. Просить его после этого лезть в почту —
+	 * лишний шаг, из-за которого в CRM так и остаётся клиент без адреса.
+	 *
+	 * @param int    $user_id Пользователь.
+	 * @param string $email   Адрес.
+	 * @return true|WP_Error
+	 */
+	public static function attach_now( $user_id, $email ) {
+		$email = sanitize_email( $email );
+		$user  = get_user_by( 'id', $user_id );
+
+		if ( ! $user ) {
+			return new WP_Error( 'vlacc_no_user', __( 'Пользователь не найден.', 'vl-account' ) );
+		}
+
+		if ( ! is_email( $email ) ) {
+			return new WP_Error( 'vlacc_bad_email', __( 'Проверьте, правильно ли указан e-mail.', 'vl-account' ) );
+		}
+
+		// У аккаунта уже есть настоящий адрес — такой меняют только по ссылке.
+		if ( VL_Account_User::has_real_email( $user ) ) {
+			return new WP_Error( 'vlacc_has_email', __( 'У аккаунта уже есть подтверждённый адрес.', 'vl-account' ) );
+		}
+
+		$owner = email_exists( $email );
+
+		if ( $owner && (int) $owner !== (int) $user_id ) {
+			return new WP_Error( 'vlacc_email_taken', __( 'Этот e-mail уже используется другим аккаунтом.', 'vl-account' ) );
+		}
+
+		$updated = wp_update_user(
+			array(
+				'ID'         => $user_id,
+				'user_email' => $email,
+			)
+		);
+
+		if ( is_wp_error( $updated ) ) {
+			return $updated;
+		}
+
+		update_user_meta( $user_id, 'billing_email', $email );
+		update_user_meta( $user_id, 'vlacc_email_verified', current_time( 'mysql' ) );
+
+		self::forget( $user_id );
+
+		VL_Account_Orders::attach_guest_orders( $user_id );
+
+		do_action( 'vlacc_email_confirmed', $user_id, $email );
+
+		vlacc_log(
+			'E-mail из оформления заказа записан без подтверждения',
+			array(
+				'user_id' => $user_id,
+				'email'   => vlacc_mask_email( $email ),
+			)
+		);
+
+		return true;
+	}
+
+	/**
 	 * Подтвердить адрес вручную, без письма.
 	 *
 	 * Нужно администратору: например, письма с сайта не доходят,
