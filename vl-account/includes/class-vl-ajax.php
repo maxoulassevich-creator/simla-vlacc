@@ -201,6 +201,10 @@ class VL_Account_Ajax {
 		if ( $user ) {
 			VL_Account_User::maybe_set_name( $user->ID, $name );
 
+			// Логин-номер у аккаунтов, заведённых до появления поля «Имя»,
+			// меняем здесь: кука выдаётся ниже, уже с новым логином.
+			VL_Account_User::maybe_rename_login( $user->ID );
+
 			update_user_meta( $user->ID, VL_Account_User::META_VERIFIED, current_time( 'mysql' ) );
 			VL_Account_Auth::login_user( $user->ID, true );
 

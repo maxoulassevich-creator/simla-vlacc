@@ -112,7 +112,17 @@ function wp_update_user( $data ) {
 
 	if ( ! $user ) { return 0; }
 
-	foreach ( $data as $key => $value ) { if ( 'ID' !== $key ) { $user->$key = $value; } }
+	foreach ( $data as $key => $value ) {
+		if ( 'ID' === $key ) { continue; }
+
+		// Ник, имя и фамилия в WordPress живут в мете пользователя.
+		if ( in_array( $key, array( 'nickname', 'first_name', 'last_name' ), true ) ) {
+			update_user_meta( $id, $key, $value );
+			continue;
+		}
+
+		$user->$key = $value;
+	}
 
 	return $id;
 }

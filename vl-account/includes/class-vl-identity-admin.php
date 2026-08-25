@@ -99,6 +99,11 @@ class VL_Account_Identity_Admin {
 				$notice = 'backfill_' . $count;
 				break;
 
+			case 'logins':
+				$count  = self::rename_logins();
+				$notice = 'logins_' . $count;
+				break;
+
 			case 'clear':
 				VL_Account_RetailCRM_Directory::truncate();
 				$notice = 'cleared';
@@ -177,6 +182,47 @@ class VL_Account_Identity_Admin {
 		}
 
 		return $updated;
+	}
+
+	/**
+	 * Заменить логины-номера на логины из имени.
+	 *
+	 * Разовая уборка для аккаунтов, заведённых до появления поля «Имя».
+	 * Условия — те же, что и при входе: аккаунт без пароля, без лишних прав,
+	 * с заполненным именем.
+	 *
+	 * @return int Сколько логинов заменено.
+	 */
+	public static function rename_logins() {
+		$users = get_users(
+			array(
+				'meta_key' => VL_Account_User::META_PHONE, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
+				'number'   => 2000,
+				'fields'   => 'ID',
+			)
+		);
+
+		$renamed = 0;
+
+		foreach ( (array) $users as $user_id ) {
+			// Ник и отображаемое имя могли остаться номером — поправим заодно.
+			VL_Account_User::sync_display_name( (int) $user_id );
+
+			if ( VL_Account_User::maybe_rename_login( (int) $user_id ) ) {
+				++$renamed;
+
+				VL_Account_Identity::log(
+					'login',
+					array(
+						'user_id' => (int) $user_id,
+						'source'  => 'admin',
+						'note'    => 'логин-номер заменён на имя',
+					)
+				);
+			}
+		}
+
+		return $renamed;
 	}
 
 	/**
@@ -296,6 +342,14 @@ class VL_Account_Identity_Admin {
 			);
 		}
 
+		if ( 0 === strpos( $code, 'logins_' ) ) {
+			return sprintf(
+				/* translators: %d — сколько логинов. */
+				__( 'Логинов заменено на имя: %d.', 'vl-account' ),
+				(int) substr( $code, 7 )
+			);
+		}
+
 		$map = array(
 			'sync_started' => __( 'Сверка запущена. Данные подтягиваются пачками в фоне — обновляйте страницу.', 'vl-account' ),
 			'sync_stopped' => __( 'Сверка остановлена.', 'vl-account' ),
@@ -408,10 +462,11 @@ class VL_Account_Identity_Admin {
 				<button class="button" name="do" value="stop"><?php esc_html_e( 'Остановить', 'vl-account' ); ?></button>
 				<button class="button" name="do" value="match"><?php esc_html_e( 'Пересопоставить с аккаунтами', 'vl-account' ); ?></button>
 				<button class="button" name="do" value="backfill"><?php esc_html_e( 'Дописать телефоны в аккаунты', 'vl-account' ); ?></button>
+				<button class="button" name="do" value="logins" onclick="return confirm('<?php echo esc_js( __( 'Заменить логины-номера на логины из имени? Изменение затронет только аккаунты без пароля; те, кто сейчас авторизован, войдут заново.', 'vl-account' ) ); ?>')"><?php esc_html_e( 'Логины из имени', 'vl-account' ); ?></button>
 				<button class="button" name="do" value="clear" onclick="return confirm('<?php echo esc_js( __( 'Удалить снимок базы CRM? Аккаунты и заказы не пострадают.', 'vl-account' ) ); ?>')"><?php esc_html_e( 'Очистить снимок', 'vl-account' ); ?></button>
 
 				<p class="description">
-					<?php esc_html_e( 'Выгрузка идёт в фоне маленькими пачками (по 100 клиентов, несколько запросов в минуту) — сайт при этом не нагружается. «Дописать телефоны» — разовая операция: номер из CRM попадает в профиль старого аккаунта, и дальше вход по SMS находит его без обращения к CRM.', 'vl-account' ); ?>
+					<?php esc_html_e( 'Выгрузка идёт в фоне маленькими пачками (по 100 клиентов, несколько запросов в минуту) — сайт при этом не нагружается. «Дописать телефоны» — разовая операция: номер из CRM попадает в профиль старого аккаунта, и дальше вход по SMS находит его без обращения к CRM. «Логины из имени» меняет логины-номера у аккаунтов без пароля на логины вида aleksandr — WordPress сам такого не умеет.', 'vl-account' ); ?>
 				</p>
 			</form>
 
@@ -420,6 +475,7 @@ class VL_Account_Identity_Admin {
 			<p>
 				<?php
 				$labels = array(
+					'login'    => __( 'логин из имени', 'vl-account' ),
 					'match'    => __( 'вход в найденный аккаунт', 'vl-account' ),
 					'merge'    => __( 'объединение', 'vl-account' ),
 					'adopt'    => __( 'данные из CRM', 'vl-account' ),

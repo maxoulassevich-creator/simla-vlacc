@@ -121,8 +121,28 @@ class VL_Account_User {
 	 * @param string $email E-mail (запасной вариант).
 	 * @return string
 	 */
-	protected static function build_username( $phone, $email = '' ) {
-		$base = $phone ? $phone : ( $email ? sanitize_user( current( explode( '@', $email ) ), true ) : 'user' );
+	protected static function build_username( $phone, $email = '', $name = '' ) {
+		$base = '';
+
+		// Логин из имени: в списке пользователей приятнее видеть «aleksandr»,
+		// а не номер телефона. Номер всё равно остаётся в почте и в профиле.
+		if ( '' !== $name && VL_Account_Settings::get( 'login_from_name', 1 ) ) {
+			$base = sanitize_user( self::translit( $name ), true );
+			$base = trim( preg_replace( '/[^a-z0-9]+/i', '', $base ) );
+
+			// Слишком короткий кусок (одна буква) логином не делаем.
+			if ( mb_strlen( $base ) < 2 ) {
+				$base = '';
+			} elseif ( username_exists( $base ) && $phone ) {
+				// Тёзка уже есть — добавляем хвост номера, так понятнее, чем «-1».
+				$base .= substr( $phone, -4 );
+			}
+		}
+
+		if ( '' === $base ) {
+			$base = $phone ? $phone : ( $email ? sanitize_user( current( explode( '@', $email ) ), true ) : 'user' );
+		}
+
 		$base = sanitize_user( $base, true );
 
 		if ( '' === $base ) {
@@ -217,12 +237,13 @@ class VL_Account_User {
 
 		$user_id = wp_insert_user(
 			array(
-				'user_login'   => self::build_username( $phone, $email ),
+				'user_login'   => self::build_username( $phone, $email, $data['first_name'] ),
 				'user_email'   => $email,
 				'user_pass'    => $password,
 				'first_name'   => sanitize_text_field( $data['first_name'] ),
 				'last_name'    => sanitize_text_field( $data['last_name'] ),
 				'display_name' => $display,
+				'nickname'     => $data['first_name'] ? $data['first_name'] : $display,
 				'role'         => $role,
 			)
 		);
@@ -279,6 +300,27 @@ class VL_Account_User {
 	}
 
 	/**
+	 * Кириллица латиницей — для логина.
+	 *
+	 * @param string $text Текст.
+	 * @return string
+	 */
+	public static function translit( $text ) {
+		$map = array(
+			'а' => 'a',  'б' => 'b',  'в' => 'v',  'г' => 'g',  'д' => 'd',
+			'е' => 'e',  'ё' => 'e',  'ж' => 'zh', 'з' => 'z',  'и' => 'i',
+			'й' => 'y',  'к' => 'k',  'л' => 'l',  'м' => 'm',  'н' => 'n',
+			'о' => 'o',  'п' => 'p',  'р' => 'r',  'с' => 's',  'т' => 't',
+			'у' => 'u',  'ф' => 'f',  'х' => 'h',  'ц' => 'ts', 'ч' => 'ch',
+			'ш' => 'sh', 'щ' => 'sch', 'ъ' => '',  'ы' => 'y',  'ь' => '',
+			'э' => 'e',  'ю' => 'yu', 'я' => 'ya',
+			'і' => 'i',  'ї' => 'i',  'є' => 'e',  'ґ' => 'g',
+		);
+
+		return strtr( mb_strtolower( (string) $text ), $map );
+	}
+
+	/**
 	 * Имя покупателя из формы входа.
 	 *
 	 * Правило простое: своё имя покупателя не трогаем. Заполняем только там,
@@ -304,7 +346,10 @@ class VL_Account_User {
 		}
 
 		// Имя уже есть — это данные покупателя, перезаписывать их нельзя.
+		// Но ник и отображаемое имя могли остаться номером — их поправим.
 		if ( '' !== trim( (string) get_user_meta( $user_id, 'first_name', true ) ) ) {
+			self::sync_display_name( $user_id );
+
 			return false;
 		}
 
@@ -314,19 +359,7 @@ class VL_Account_User {
 			update_user_meta( $user_id, 'billing_first_name', $name );
 		}
 
-		// Отображаемое имя: до сих пор там стоял телефон или логин.
-		if ( self::display_name_is_technical( $user ) ) {
-			$last    = trim( (string) get_user_meta( $user_id, 'last_name', true ) );
-			$display = trim( $name . ' ' . $last );
-
-			wp_update_user(
-				array(
-					'ID'           => $user_id,
-					'display_name' => $display,
-					'nickname'     => $name,
-				)
-			);
-		}
+		self::sync_display_name( $user_id );
 
 		vlacc_log(
 			'Имя покупателя записано из формы входа',
@@ -339,6 +372,48 @@ class VL_Account_User {
 		if ( class_exists( 'VL_Account_RetailCRM_Customer' ) && class_exists( 'VL_Account_RetailCRM' ) && VL_Account_RetailCRM::enabled() ) {
 			VL_Account_RetailCRM_Customer::push( $user_id, true );
 		}
+
+		return true;
+	}
+
+	/**
+	 * Ник и отображаемое имя привести к имени покупателя.
+	 *
+	 * WordPress по умолчанию ставит в ник логин — у нас это был номер
+	 * телефона. Своё, уже человеческое, значение не трогаем.
+	 *
+	 * @param int $user_id Пользователь.
+	 * @return bool Меняли ли что-нибудь.
+	 */
+	public static function sync_display_name( $user_id ) {
+		$user = get_user_by( 'id', (int) $user_id );
+
+		if ( ! $user ) {
+			return false;
+		}
+
+		$first = trim( (string) get_user_meta( $user_id, 'first_name', true ) );
+
+		if ( '' === $first ) {
+			return false;
+		}
+
+		$last = trim( (string) get_user_meta( $user_id, 'last_name', true ) );
+		$args = array( 'ID' => (int) $user_id );
+
+		if ( self::display_name_is_technical( $user ) ) {
+			$args['display_name'] = trim( $first . ' ' . $last );
+		}
+
+		if ( self::nickname_is_technical( $user ) ) {
+			$args['nickname'] = $first;
+		}
+
+		if ( count( $args ) < 2 ) {
+			return false;
+		}
+
+		wp_update_user( $args );
 
 		return true;
 	}
@@ -362,6 +437,112 @@ class VL_Account_User {
 
 		// «+7 (926) 123-45-67» или «79261234567» — это не имя.
 		return '' !== VL_Account_Phone::normalize( $display ) && '' === trim( preg_replace( '/[\d\s()+\-]/u', '', $display ) );
+	}
+
+	/**
+	 * Логин-номер заменить логином из имени.
+	 *
+	 * WordPress не даёт менять логин из интерфейса, но записать его в базу
+	 * можно. Делаем это только там, где логином никто не пользуется: аккаунт
+	 * заведён входом по SMS, пароля у него нет, входят по номеру и коду.
+	 * Прав выше покупателя у такого аккаунта тоже быть не должно.
+	 *
+	 * @param int $user_id Пользователь.
+	 * @return bool Переименовали ли.
+	 */
+	public static function maybe_rename_login( $user_id ) {
+		global $wpdb;
+
+		$user_id = (int) $user_id;
+
+		if ( ! $user_id || ! VL_Account_Settings::get( 'login_from_name', 1 ) ) {
+			return false;
+		}
+
+		$user = get_user_by( 'id', $user_id );
+
+		if ( ! $user ) {
+			return false;
+		}
+
+		// Логин уже человеческий — не трогаем.
+		if ( ! preg_match( '/^\+?\d{10,15}$/', (string) $user->user_login ) ) {
+			return false;
+		}
+
+		// У аккаунта есть свой пароль — по логину могут входить.
+		if ( ! get_user_meta( $user_id, self::META_NOPASS, true ) ) {
+			return false;
+		}
+
+		if ( class_exists( 'VL_Account_Identity' ) && ! VL_Account_Identity::is_adoptable( $user_id ) ) {
+			return false;
+		}
+
+		$name = trim( (string) get_user_meta( $user_id, 'first_name', true ) );
+
+		if ( '' === $name ) {
+			return false;
+		}
+
+		$phone = self::get_phone( $user_id );
+		$login = self::build_username( $phone, $user->user_email, $name );
+
+		if ( '' === $login || $login === $user->user_login ) {
+			return false;
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$updated = $wpdb->update(
+			$wpdb->users,
+			array(
+				'user_login'    => $login,
+				'user_nicename' => sanitize_title( $login ),
+			),
+			array( 'ID' => $user_id )
+		);
+
+		if ( ! $updated ) {
+			return false;
+		}
+
+		// Кэш чистим и по старому логину (объект ещё помнит его), и по ID.
+		clean_user_cache( $user );
+		clean_user_cache( $user_id );
+
+		vlacc_log(
+			'Логин заменён на имя',
+			array(
+				'user_id' => $user_id,
+				'login'   => $login,
+			)
+		);
+
+		return true;
+	}
+
+	/**
+	 * Ник — это логин или номер телефона, а не имя.
+	 *
+	 * @param WP_User $user Пользователь.
+	 * @return bool
+	 */
+	protected static function nickname_is_technical( $user ) {
+		$nickname = trim( (string) get_user_meta( $user->ID, 'nickname', true ) );
+
+		if ( '' === $nickname || $nickname === $user->user_login ) {
+			return true;
+		}
+
+		// Ник равен логину, только собранному из имени латиницей («yaroslav»),
+		// — это тоже не имя, а служебное значение WordPress.
+		$first = trim( (string) get_user_meta( $user->ID, 'first_name', true ) );
+
+		if ( '' !== $first && mb_strtolower( $nickname ) === self::translit( $first ) ) {
+			return true;
+		}
+
+		return '' !== VL_Account_Phone::normalize( $nickname ) && '' === trim( preg_replace( '/[\d\s()+\-]/u', '', $nickname ) );
 	}
 
 	/**

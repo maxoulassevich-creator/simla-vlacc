@@ -33,7 +33,7 @@ function wp_insert_user( $data ) {
 		)
 	);
 
-	foreach ( array( 'first_name', 'last_name' ) as $key ) {
+	foreach ( array( 'first_name', 'last_name', 'nickname' ) as $key ) {
 		if ( ! empty( $data[ $key ] ) ) {
 			update_user_meta( $id, $key, $data[ $key ] );
 		}
@@ -43,8 +43,33 @@ function wp_insert_user( $data ) {
 }
 function get_role( $role ) { return 'customer' === $role ? (object) array( 'name' => 'customer' ) : null; }
 function sanitize_user( $login, $strict = false ) { return preg_replace( '/[^a-zA-Z0-9_.\-@]/', '', (string) $login ); }
-function username_exists( $login ) { return false; }
+function username_exists( $login ) {
+	foreach ( $GLOBALS['users'] as $user ) {
+		if ( isset( $user->user_login ) && $user->user_login === $login ) { return $user->ID; }
+	}
+
+	return false;
+}
 function wp_hash_password( $p ) { return 'hash'; }
+function sanitize_title( $t ) { return strtolower( preg_replace( '/[^a-z0-9\-]+/i', '-', (string) $t ) ); }
+function clean_user_cache( $u ) { return true; }
+
+/** Заглушка $wpdb: переименование логина идёт прямым запросом. */
+class Fake_WPDB {
+	public $users = 'wp_users';
+	public function update( $table, $data, $where ) {
+		$id   = (int) ( $where['ID'] ?? 0 );
+		$user = $GLOBALS['users'][ $id ] ?? null;
+
+		if ( ! $user ) { return 0; }
+
+		foreach ( $data as $key => $value ) { $user->$key = $value; }
+
+		return 1;
+	}
+}
+
+$GLOBALS['wpdb'] = new Fake_WPDB();
 
 /**
  * Завести пользователя.
@@ -149,6 +174,153 @@ $user_id = VL_Account_User::create(
 );
 
 check( 'телефон в поле имени не становится именем', '' === get_user_meta( $user_id, 'first_name', true ) );
+
+echo "\n== 8. Логин нового аккаунта ==\n";
+
+check( 'транслитерация', 'aleksandr' === VL_Account_User::translit( 'Александр' ), VL_Account_User::translit( 'Александр' ) );
+check( 'буквы без латинского аналога', 'schi' === VL_Account_User::translit( 'Щи' ), VL_Account_User::translit( 'Щи' ) );
+
+$user_id = VL_Account_User::create(
+	array(
+		'phone'      => '+7 (926) 777-66-55',
+		'first_name' => 'Александр',
+		'verified'   => true,
+	)
+);
+
+check( 'логин из имени, а не из телефона', 'aleksandr' === $GLOBALS['users'][ $user_id ]->user_login, $GLOBALS['users'][ $user_id ]->user_login );
+check( 'ник — имя', 'Александр' === get_user_meta( $user_id, 'nickname', true ), get_user_meta( $user_id, 'nickname', true ) );
+
+// Тёзка: к логину добавляется хвост номера.
+$twin = VL_Account_User::create(
+	array(
+		'phone'      => '+7 (926) 777-11-22',
+		'first_name' => 'Александр',
+		'verified'   => true,
+	)
+);
+
+check( 'у тёзки логин с хвостом номера', 'aleksandr1122' === $GLOBALS['users'][ $twin ]->user_login, $GLOBALS['users'][ $twin ]->user_login );
+
+// Без имени логин остаётся номером.
+$nameless = VL_Account_User::create(
+	array(
+		'phone'    => '+7 (926) 777-00-11',
+		'verified' => true,
+	)
+);
+
+check( 'без имени логин — номер', '79267770011' === $GLOBALS['users'][ $nameless ]->user_login, $GLOBALS['users'][ $nameless ]->user_login );
+
+VL_Account_Settings::update( array( 'login_from_name' => 0 ) );
+
+$plain = VL_Account_User::create(
+	array(
+		'phone'      => '+7 (926) 777-33-44',
+		'first_name' => 'Николай',
+		'verified'   => true,
+	)
+);
+
+check( 'настройка возвращает логин-номер', '79267773344' === $GLOBALS['users'][ $plain ]->user_login, $GLOBALS['users'][ $plain ]->user_login );
+VL_Account_Settings::update( array( 'login_from_name' => 1 ) );
+
+echo "\n== 9. Ник у старых аккаунтов ==\n";
+
+make_user( 20, '79269998877', '79269998877@phone.example.test', 'Мария Соколова' );
+update_user_meta( 20, 'nickname', '79269998877' );
+
+VL_Account_User::maybe_set_name( 20, 'Мария' );
+
+check( 'ник заменён на имя', 'Мария' === get_user_meta( 20, 'nickname', true ), get_user_meta( 20, 'nickname', true ) );
+check( 'отображаемое имя не тронуто', 'Мария Соколова' === $GLOBALS['users'][20]->display_name );
+
+echo "\n== 10. Логин-номер у старого аккаунта ==\n";
+
+// Аккаунт от входа по SMS: логин — номер, пароля нет, имя уже есть.
+make_user( 30, '79047767897', '79047767897@phone.example.test', 'Александр' );
+update_user_meta( 30, 'first_name', 'Александр' );
+update_user_meta( 30, VL_Account_User::META_NOPASS, 1 );
+update_user_meta( 30, VL_Account_User::META_PHONE, '79047767897' );
+
+check( 'логин заменён', VL_Account_User::maybe_rename_login( 30 ) );
+check( 'логин теперь имя', 'aleksandr7897' === $GLOBALS['users'][30]->user_login || 'aleksandr' === $GLOBALS['users'][30]->user_login, $GLOBALS['users'][30]->user_login );
+check( 'повторно не переименовываем', ! VL_Account_User::maybe_rename_login( 30 ) );
+
+// У аккаунта есть свой пароль — логин трогать нельзя.
+make_user( 31, '79047767898', 'pass@example.com', 'Мария' );
+update_user_meta( 31, 'first_name', 'Мария' );
+update_user_meta( 31, VL_Account_User::META_PHONE, '79047767898' );
+
+check( 'аккаунт с паролем не трогаем', ! VL_Account_User::maybe_rename_login( 31 ) );
+check( 'логин остался прежним', '79047767898' === $GLOBALS['users'][31]->user_login );
+
+// Без имени переименовывать не во что.
+make_user( 32, '79047767899', '79047767899@phone.example.test' );
+update_user_meta( 32, VL_Account_User::META_NOPASS, 1 );
+
+check( 'без имени логин остаётся номером', ! VL_Account_User::maybe_rename_login( 32 ) );
+
+// Человеческий логин не трогаем.
+make_user( 33, 'sokolova', 'sokolova2@example.com', 'Мария' );
+update_user_meta( 33, 'first_name', 'Мария' );
+update_user_meta( 33, VL_Account_User::META_NOPASS, 1 );
+
+check( 'обычный логин не трогаем', ! VL_Account_User::maybe_rename_login( 33 ) );
+
+VL_Account_Settings::update( array( 'login_from_name' => 0 ) );
+make_user( 34, '79047767800', '79047767800@phone.example.test' );
+update_user_meta( 34, 'first_name', 'Пётр' );
+update_user_meta( 34, VL_Account_User::META_NOPASS, 1 );
+
+check( 'выключенная настройка ничего не меняет', ! VL_Account_User::maybe_rename_login( 34 ) );
+VL_Account_Settings::update( array( 'login_from_name' => 1 ) );
+
+echo "\n== 11. Имя во всех трёх полях ==\n";
+
+// Аккаунт как на скриншоте: логин латиницей, ник — тот же логин.
+make_user( 40, 'yaroslav', '79047767897@phone.example.test', 'Ярослав' );
+update_user_meta( 40, 'first_name', 'Ярослав' );
+update_user_meta( 40, 'last_name', 'Кацуба' );
+update_user_meta( 40, 'nickname', 'yaroslav' );
+
+check( 'ник поправлен', VL_Account_User::sync_display_name( 40 ) );
+check( 'ник — имя', 'Ярослав' === get_user_meta( 40, 'nickname', true ), get_user_meta( 40, 'nickname', true ) );
+check( 'отображаемое имя не тронуто', 'Ярослав' === $GLOBALS['users'][40]->display_name );
+
+// Тот же вход второй раз ничего не меняет.
+check( 'повторный проход вхолостую', ! VL_Account_User::sync_display_name( 40 ) );
+
+// Свой ник покупателя не трогаем.
+make_user( 41, '79047767801', 'nick@example.com', 'Мария' );
+update_user_meta( 41, 'first_name', 'Мария' );
+update_user_meta( 41, 'nickname', 'машенька' );
+
+VL_Account_User::sync_display_name( 41 );
+check( 'свой ник остаётся', 'машенька' === get_user_meta( 41, 'nickname', true ) );
+
+// Имя есть, ник — номер: maybe_set_name чинит ник, даже когда имя не пишет.
+make_user( 42, '79047767802', '79047767802@phone.example.test', 'Пётр' );
+update_user_meta( 42, 'first_name', 'Пётр' );
+update_user_meta( 42, 'nickname', '79047767802' );
+
+check( 'имя повторно не пишем', ! VL_Account_User::maybe_set_name( 42, 'Пётр' ) );
+check( 'а ник всё равно поправлен', 'Пётр' === get_user_meta( 42, 'nickname', true ), get_user_meta( 42, 'nickname', true ) );
+
+// Новый аккаунт: имя сразу во всех трёх полях.
+$fresh = VL_Account_User::create(
+	array(
+		'phone'      => '+7 (926) 321-11-22',
+		'first_name' => 'Ярослав',
+		'verified'   => true,
+	)
+);
+
+// Тёзка «yaroslav» уже есть выше — логин получает хвост номера.
+check( 'логин из имени', 'yaroslav1122' === $GLOBALS['users'][ $fresh ]->user_login, $GLOBALS['users'][ $fresh ]->user_login );
+check( 'имя в профиле', 'Ярослав' === get_user_meta( $fresh, 'first_name', true ) );
+check( 'ник — имя', 'Ярослав' === get_user_meta( $fresh, 'nickname', true ), get_user_meta( $fresh, 'nickname', true ) );
+check( 'отображается имя', 'Ярослав' === $GLOBALS['users'][ $fresh ]->display_name );
 
 echo "\n------------------------------------------------------------\n";
 echo "Пройдено: $pass, провалено: $fail\n";
