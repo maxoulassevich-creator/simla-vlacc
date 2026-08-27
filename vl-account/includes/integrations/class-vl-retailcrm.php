@@ -52,6 +52,13 @@ class VL_Account_RetailCRM {
 	private static $api = null;
 
 	/**
+	 * Клиент API для записи (только Simla).
+	 *
+	 * @var WC_Retailcrm_Proxy|false|null
+	 */
+	private static $writer = null;
+
+	/**
 	 * Объект программы лояльности плагина Simla.
 	 *
 	 * @var WC_Retailcrm_Loyalty|false|null
@@ -131,13 +138,32 @@ class VL_Account_RetailCRM {
 	}
 
 	/**
-	 * Ключ API заполнен.
+	 * Ключ API заполнен: свой или из настроек Simla.
 	 *
 	 * @return bool
 	 */
 	public static function api_ready() {
+		return self::own_key_ready() || self::simla_key_ready();
+	}
+
+	/**
+	 * Ключ API есть в настройках плагина Simla.
+	 *
+	 * @return bool
+	 */
+	public static function simla_key_ready() {
 		return '' !== trim( (string) self::crm_setting( 'api_url' ) )
 			&& '' !== trim( (string) self::crm_setting( 'api_key' ) );
+	}
+
+	/**
+	 * Заполнен свой ключ API — тот, которым кабинет читает CRM сам.
+	 *
+	 * @return bool
+	 */
+	public static function own_key_ready() {
+		return '' !== trim( (string) VL_Account_Settings::get( 'crm_api_url', '' ) )
+			&& '' !== trim( (string) VL_Account_Settings::get( 'crm_api_key', '' ) );
 	}
 
 	/**
@@ -159,7 +185,12 @@ class VL_Account_RetailCRM {
 			return false;
 		}
 
-		return self::plugin_active() && self::api_ready();
+		// Со своим ключом кабинет читает CRM сам, без плагина Simla.
+		if ( self::own_key_ready() ) {
+			return true;
+		}
+
+		return self::plugin_active() && self::simla_key_ready();
 	}
 
 	/**
@@ -176,9 +207,14 @@ class VL_Account_RetailCRM {
 	 * ------------------------------------------------------------------ */
 
 	/**
-	 * Клиент API Simla.
+	 * Клиент API для чтения.
 	 *
-	 * @return WC_Retailcrm_Proxy|false
+	 * Если в настройках кабинета заполнен свой ключ — читаем им, своим
+	 * клиентом: он не зависит от плагина Simla, пишет журнал запросов и
+	 * физически не умеет менять данные в CRM. Иначе работаем, как раньше,
+	 * транспортом Simla.
+	 *
+	 * @return WC_Retailcrm_Proxy|VL_Account_CRM_Client|false
 	 */
 	public static function api() {
 		if ( null !== self::$api ) {
@@ -191,18 +227,86 @@ class VL_Account_RetailCRM {
 			return self::$api;
 		}
 
+		if ( self::own_key_ready() ) {
+			self::$api = new VL_Account_CRM_Client(
+				(string) VL_Account_Settings::get( 'crm_api_url', '' ),
+				(string) VL_Account_Settings::get( 'crm_api_key', '' ),
+				(string) VL_Account_Settings::get( 'crm_api_site', '' )
+			);
+
+			return self::$api;
+		}
+
+		self::$api = self::writer();
+
+		return self::$api;
+	}
+
+	/**
+	 * Клиент API для записи — только транспорт Simla.
+	 *
+	 * Писать в CRM должен кто-то один, иначе покупатели и заказы начнут
+	 * спорить друг с другом. Этот кто-то — плагин Simla; наш ключ работает
+	 * только на чтение. Здесь остались две операции: простановка externalId
+	 * существующей карточке и вступление в программу лояльности.
+	 *
+	 * @return WC_Retailcrm_Proxy|false
+	 */
+	public static function writer() {
+		if ( null !== self::$writer ) {
+			return self::$writer;
+		}
+
+		self::$writer = false;
+
+		if ( ! VL_Account_Settings::get( 'crm_enabled', 1 ) || ! self::plugin_active() || ! self::simla_key_ready() ) {
+			return self::$writer;
+		}
+
 		try {
-			self::$api = new WC_Retailcrm_Proxy(
+			self::$writer = new WC_Retailcrm_Proxy(
 				self::crm_setting( 'api_url' ),
 				self::crm_setting( 'api_key' ),
 				'yes' === self::crm_setting( 'corporate_enabled', 'no' )
 			);
 		} catch ( Throwable $e ) {
 			self::log( 'Не удалось создать клиент API', array( 'error' => $e->getMessage() ) );
-			self::$api = false;
+			self::$writer = false;
 		}
 
-		return self::$api;
+		return self::$writer;
+	}
+
+	/**
+	 * Ответ CRM успешен.
+	 *
+	 * Ответы приходят от двух разных клиентов — своего и Simla, — поэтому
+	 * проверку держим в одном месте.
+	 *
+	 * @param mixed $response Ответ.
+	 * @return bool
+	 */
+	public static function ok( $response ) {
+		if ( $response instanceof VL_Account_CRM_Response ) {
+			return $response->isSuccessful();
+		}
+
+		if ( class_exists( 'WC_Retailcrm_Response' ) && $response instanceof WC_Retailcrm_Response ) {
+			return $response->isSuccessful();
+		}
+
+		return false;
+	}
+
+	/**
+	 * В успешном ответе есть такой ключ.
+	 *
+	 * @param mixed  $response Ответ.
+	 * @param string $key      Ключ.
+	 * @return bool
+	 */
+	public static function has( $response, $key ) {
+		return self::ok( $response ) && $response->offsetExists( $key );
 	}
 
 	/**
@@ -309,7 +413,7 @@ class VL_Account_RetailCRM {
 
 		$response = $api->customersGet( $user_id );
 
-		if ( $response instanceof WC_Retailcrm_Response && $response->isSuccessful() && ! empty( $response['customer']['id'] ) ) {
+		if ( VL_Account_RetailCRM::ok( $response ) && ! empty( $response['customer']['id'] ) ) {
 			self::$crm_ids[ $user_id ] = (int) $response['customer']['id'];
 
 			return self::$crm_ids[ $user_id ];
@@ -649,9 +753,20 @@ class VL_Account_RetailCRM {
 	 * @return bool
 	 */
 	public static function assign_external_id( $crm_id, $user_id ) {
-		$api = self::api();
+		// Запись в CRM идёт только транспортом Simla: свой ключ читает.
+		$api = self::writer();
 
 		if ( ! $api || ! $crm_id || ! $user_id ) {
+			if ( ! $api ) {
+				self::log(
+					'Записать externalId некому: плагин Simla выключен или не настроен',
+					array(
+						'user_id' => $user_id,
+						'crm_id'  => $crm_id,
+					)
+				);
+			}
+
 			return false;
 		}
 
@@ -669,7 +784,7 @@ class VL_Account_RetailCRM {
 			);
 		}
 
-		if ( ! $response instanceof WC_Retailcrm_Response || ! $response->isSuccessful() ) {
+		if ( ! VL_Account_RetailCRM::ok( $response ) ) {
 			$response = $api->customersEdit(
 				array(
 					'id'         => (int) $crm_id,
@@ -679,7 +794,7 @@ class VL_Account_RetailCRM {
 			);
 		}
 
-		$ok = $response instanceof WC_Retailcrm_Response && $response->isSuccessful();
+		$ok = VL_Account_RetailCRM::ok( $response );
 
 		if ( ! $ok ) {
 			self::log(
@@ -797,7 +912,7 @@ class VL_Account_RetailCRM {
 		if ( $crm_id ) {
 			$response = $api->getLoyaltyAccountList( array( 'customerId' => $crm_id ) );
 
-			if ( ! $response instanceof WC_Retailcrm_Response || ! $response->isSuccessful() ) {
+			if ( ! VL_Account_RetailCRM::ok( $response ) ) {
 				self::log( 'Не удалось получить участие в программе лояльности', array( 'user_id' => $user_id ) );
 
 				return self::empty_account( 'error' );
@@ -1096,7 +1211,7 @@ class VL_Account_RetailCRM {
 
 		self::flush( $user_id );
 
-		if ( ! $response instanceof WC_Retailcrm_Response || ! $response->isSuccessful() ) {
+		if ( ! VL_Account_RetailCRM::ok( $response ) ) {
 			return new WP_Error(
 				'vlacc_crm_activate',
 				__( 'Не удалось активировать участие. Попробуйте позже.', 'vl-account' )
@@ -1180,7 +1295,7 @@ class VL_Account_RetailCRM {
 
 		$response = $api->ordersList( array( 'customerId' => $crm_id ), 1, min( 100, (int) $limit ) );
 
-		if ( ! $response instanceof WC_Retailcrm_Response || ! $response->isSuccessful() ) {
+		if ( ! VL_Account_RetailCRM::ok( $response ) ) {
 			self::log( 'Не удалось получить заказы покупателя из CRM', array( 'user_id' => $user_id ) );
 
 			return array();
@@ -1240,7 +1355,7 @@ class VL_Account_RetailCRM {
 		$response = $api->statusesList();
 		$statuses = array();
 
-		if ( $response instanceof WC_Retailcrm_Response && $response->isSuccessful() && $response->offsetExists( 'statuses' ) ) {
+		if ( VL_Account_RetailCRM::has( $response, 'statuses' ) ) {
 			foreach ( (array) $response['statuses'] as $code => $status ) {
 				$statuses[ $code ] = isset( $status['name'] ) ? (string) $status['name'] : (string) $code;
 			}
@@ -1288,6 +1403,7 @@ class VL_Account_RetailCRM {
 		self::$accounts = array();
 		self::$crm_ids  = array();
 		self::$api      = null;
+		self::$writer   = null;
 		self::$loyalty  = null;
 
 		delete_transient( self::SITE_CACHE );
@@ -1333,17 +1449,17 @@ class VL_Account_RetailCRM {
 	 * @return array ['ok' => bool, 'message' => string]
 	 */
 	public static function ping() {
-		if ( ! self::plugin_active() ) {
+		if ( ! self::plugin_active() && ! self::own_key_ready() ) {
 			return array(
 				'ok'      => false,
-				'message' => __( 'Плагин Simla.com не установлен или не активирован.', 'vl-account' ),
+				'message' => __( 'Плагин Simla.com не установлен или не активирован, свой ключ API тоже не задан.', 'vl-account' ),
 			);
 		}
 
 		if ( ! self::api_ready() ) {
 			return array(
 				'ok'      => false,
-				'message' => __( 'В настройках Simla.com не заполнены адрес и ключ API.', 'vl-account' ),
+				'message' => __( 'Не заполнены адрес и ключ API — ни свои, ни в настройках Simla.com.', 'vl-account' ),
 			);
 		}
 
@@ -1358,10 +1474,12 @@ class VL_Account_RetailCRM {
 
 		$response = $api->credentials();
 
-		if ( ! $response instanceof WC_Retailcrm_Response || ! $response->isSuccessful() ) {
+		if ( ! VL_Account_RetailCRM::ok( $response ) ) {
 			return array(
 				'ok'      => false,
-				'message' => __( 'CRM не ответила на запрос прав ключа. Проверьте адрес и ключ API.', 'vl-account' ),
+				'message' => self::own_key_ready()
+					? __( 'CRM не ответила на запрос прав своего ключа. Проверьте адрес и ключ API в настройках кабинета.', 'vl-account' )
+					: __( 'CRM не ответила на запрос прав ключа. Проверьте адрес и ключ API.', 'vl-account' ),
 			);
 		}
 

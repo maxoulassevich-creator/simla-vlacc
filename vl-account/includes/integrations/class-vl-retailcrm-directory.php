@@ -314,7 +314,7 @@ class VL_Account_RetailCRM_Directory {
 		for ( $i = 0; $i < self::PAGES_PER_RUN; $i++ ) {
 			$response = $api->customersList( array(), $page, self::PAGE_SIZE );
 
-			if ( ! $response instanceof WC_Retailcrm_Response || ! $response->isSuccessful() ) {
+			if ( ! VL_Account_RetailCRM::ok( $response ) ) {
 				self::set_state(
 					array(
 						'running' => 0,
@@ -1059,7 +1059,7 @@ class VL_Account_RetailCRM_Directory {
 		foreach ( self::search_terms( $phone ) as $term ) {
 			$response = $api->customersList( array( 'phone' => $term ), 1, 20 );
 
-			if ( ! $response instanceof WC_Retailcrm_Response || ! $response->isSuccessful() ) {
+			if ( ! VL_Account_RetailCRM::ok( $response ) ) {
 				continue;
 			}
 
@@ -1095,7 +1095,7 @@ class VL_Account_RetailCRM_Directory {
 		foreach ( self::search_terms( $phone ) as $term ) {
 			$response = $api->ordersList( array( 'customer' => $term ), 1, 20 );
 
-			if ( ! $response instanceof WC_Retailcrm_Response || ! $response->isSuccessful() ) {
+			if ( ! VL_Account_RetailCRM::ok( $response ) ) {
 				continue;
 			}
 
@@ -1140,7 +1140,7 @@ class VL_Account_RetailCRM_Directory {
 	public static function fetch_customer( $api, $crm_id ) {
 		$response = $api->customersGet( (int) $crm_id, 'id' );
 
-		if ( $response instanceof WC_Retailcrm_Response && $response->isSuccessful() && $response->offsetExists( 'customer' ) ) {
+		if ( VL_Account_RetailCRM::has( $response, 'customer' ) ) {
 			return (array) $response['customer'];
 		}
 
@@ -1158,7 +1158,7 @@ class VL_Account_RetailCRM_Directory {
 		foreach ( self::search_terms( $phone ) as $term ) {
 			$response = $api->customersList( array( 'name' => $term ), 1, 20 );
 
-			if ( ! $response instanceof WC_Retailcrm_Response || ! $response->isSuccessful() ) {
+			if ( ! VL_Account_RetailCRM::ok( $response ) ) {
 				continue;
 			}
 
@@ -1245,7 +1245,7 @@ class VL_Account_RetailCRM_Directory {
 		foreach ( array( '+' . $phone, $phone ) as $term ) {
 			$response = $api->getLoyaltyAccountList( array( 'phoneNumber' => $term ), 20, 1 );
 
-			if ( ! $response instanceof WC_Retailcrm_Response || ! $response->isSuccessful() ) {
+			if ( ! VL_Account_RetailCRM::ok( $response ) ) {
 				continue;
 			}
 

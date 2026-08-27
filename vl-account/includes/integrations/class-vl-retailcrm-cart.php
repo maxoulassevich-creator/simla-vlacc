@@ -187,7 +187,7 @@ class VL_Account_RetailCRM_Cart {
 
 		$response = $loyalty->calculateDiscountLoyalty( $items, $site, $user_id, (float) $bonuses );
 
-		if ( ! $response instanceof WC_Retailcrm_Response || ! $response->isSuccessful() ) {
+		if ( ! VL_Account_RetailCRM::ok( $response ) ) {
 			return null;
 		}
 

@@ -22,6 +22,7 @@ $files = array(
 	'test-identity.php'  => 'Сопоставление и объединение аккаунтов',
 	'test-crm-directory.php' => 'Справочник покупателей CRM',
 	'test-crm-duplicates.php' => 'Дубли карточек и счетов в CRM',
+	'test-crm-client.php' => 'Свой клиент API RetailCRM',
 	'test-phone-audit.php' => 'Разбор телефонов, записанных плагином',
 	'test-email-checkout.php' => 'Почта из оформления заказа',
 	'test-icons.php'     => 'Иконки плагина',

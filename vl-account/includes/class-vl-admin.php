@@ -832,6 +832,45 @@ class VL_Account_Admin {
 			</p>
 		<?php endif; ?>
 
+		<h2><?php esc_html_e( 'Свой ключ API (только чтение)', 'vl-account' ); ?></h2>
+
+		<p class="description" style="max-width:900px">
+			<?php esc_html_e( 'По умолчанию кабинет читает CRM ключом из настроек плагина Simla. Здесь можно завести свой ключ — тогда чтение не зависит от Simla, каждый запрос виден в журнале, а любая попытка что-то записать этим ключом блокируется в коде. Запись в CRM (покупатели, заказы, вступление в программу лояльности) по-прежнему остаётся за плагином Simla: писать в одну базу должен кто-то один.', 'vl-account' ); ?>
+		</p>
+
+		<p class="description" style="max-width:900px">
+			<?php esc_html_e( 'Ключ создаётся в CRM: Настройки → Интеграция → Ключи доступа к API → Добавить. Достаточно прав на чтение: клиенты, заказы, справочники, программа лояльности. Оставьте поля пустыми, чтобы работать ключом Simla, как раньше.', 'vl-account' ); ?>
+		</p>
+
+		<table class="form-table" role="presentation">
+			<?php
+			$this->text(
+				'crm_api_url',
+				$s,
+				__( 'Адрес CRM', 'vl-account' ),
+				__( 'Например: https://lovefirst.retailcrm.ru', 'vl-account' )
+			);
+			$this->text(
+				'crm_api_key',
+				$s,
+				__( 'Ключ API (чтение)', 'vl-account' ),
+				__( 'Ключ хранится в настройках сайта. Если сомневаетесь — заведите отдельный ключ только на чтение и в любой момент отзовите его в CRM.', 'vl-account' )
+			);
+			$this->text(
+				'crm_api_site',
+				$s,
+				__( 'Код магазина', 'vl-account' ),
+				__( 'Символьный код магазина в CRM (например, lovefirst). Пусто — определится сам, если у ключа один магазин.', 'vl-account' )
+			);
+			$this->checkbox(
+				'crm_api_log',
+				$s,
+				__( 'Писать запросы к CRM в журнал', 'vl-account' ),
+				__( 'Каждый запрос своим ключом попадёт в журнал на вкладке «Диагностика»: метод, адрес, код ответа, время. Полезно при разборе, но журнал растёт быстро.', 'vl-account' )
+			);
+			?>
+		</table>
+
 		<h2><?php esc_html_e( 'Обмен данными', 'vl-account' ); ?></h2>
 
 		<table class="form-table" role="presentation">
@@ -1066,8 +1105,26 @@ class VL_Account_Admin {
 				: __( 'Не найден. Раздел «Бонусы» работает на локальном балансе.', 'vl-account' ),
 		);
 
-		if ( ! $active ) {
+		$own = VL_Account_RetailCRM::own_key_ready();
+
+		$checks[] = array(
+			'title'  => __( 'Чем читаем CRM', 'vl-account' ),
+			'status' => 'ok',
+			'text'   => $own
+				? esc_html__( 'Своим ключом, только чтение. Записи в CRM этим ключом невозможны — их делает плагин Simla.', 'vl-account' )
+				: esc_html__( 'Ключом из настроек плагина Simla. Свой ключ можно указать ниже.', 'vl-account' ),
+		);
+
+		if ( ! $active && ! $own ) {
 			return $checks;
+		}
+
+		if ( ! $active ) {
+			$checks[] = array(
+				'title'  => __( 'Запись в CRM', 'vl-account' ),
+				'status' => 'warn',
+				'text'   => esc_html__( 'Плагин Simla выключен: кабинет читает CRM своим ключом, но записывать данные (externalId, вступление в программу лояльности) сейчас некому.', 'vl-account' ),
+			);
 		}
 
 		$ping = VL_Account_RetailCRM::ping();
@@ -1641,7 +1698,7 @@ class VL_Account_Admin {
 			'forms'   => array( 'passwordless', 'auto_register', 'ask_name', 'login_from_name', 'auth_marketing_box', 'show_telegram', 'gate_cart', 'consent_privacy', 'consent_marketing' ),
 			'account' => array( 'wishlist_on_product', 'profile_address', 'profile_shipping', 'ws_enabled', 'ws_two_way', 'ws_merge_guest', 'ws_hide_our_button', 'ws_size_buttons', 'sn_enabled', 'sn_show_sent', 'sn_match_email' ),
 			'orders'  => array( 'auto_create_account', 'attach_guest_orders', 'match_by_phone', 'email_on_register', 'email_on_autocreate', 'email_confirm', 'email_from_checkout', 'carts_enabled', 'autofill', 'autofill_fix_forms' ),
-			'crm'     => array( 'crm_enabled', 'crm_sync_customer', 'crm_sync_consents', 'crm_skip_tech_email', 'crm_order_priority', 'crm_loyalty_ui', 'crm_loyalty_auto', 'crm_hide_wc_loyalty', 'crm_credit_top', 'crm_promo_combine', 'crm_promo_hide_loyalty', 'crm_fix_coupon_email', 'identity_orders', 'identity_crm', 'crm_directory', 'crm_lookup_live', 'crm_link_by_phone', 'crm_orders_history', 'crm_sync_daily', 'identity_merge', 'identity_delete_merged', 'identity_trust_crm_email' ),
+			'crm'     => array( 'crm_enabled', 'crm_api_log', 'crm_sync_customer', 'crm_sync_consents', 'crm_skip_tech_email', 'crm_order_priority', 'crm_loyalty_ui', 'crm_loyalty_auto', 'crm_hide_wc_loyalty', 'crm_credit_top', 'crm_promo_combine', 'crm_promo_hide_loyalty', 'crm_fix_coupon_email', 'identity_orders', 'identity_crm', 'crm_directory', 'crm_lookup_live', 'crm_link_by_phone', 'crm_orders_history', 'crm_sync_daily', 'identity_merge', 'identity_delete_merged', 'identity_trust_crm_email' ),
 			'design'  => array(),
 		);
 

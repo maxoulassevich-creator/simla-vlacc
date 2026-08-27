@@ -3,7 +3,7 @@
  * Plugin Name: VL Account — вход, регистрация по SMS и личный кабинет
  * Plugin URI:  https://example.com/
  * Description: Вход и регистрация по номеру телефона через SMS.RU (код в SMS или звонком), восстановление пароля, личный кабинет WooCommerce (заказы, избранное, промокод, бонусы, согласия), автосоздание кабинета при заказе, привязка гостевых заказов, адреса доставки и оплаты в кабинете, объединение старых аккаунтов с входом по SMS, отчёт по брошенным корзинам, автозаполнение форм. Интеграция с плагинами Simla.com (RetailCRM), WishSuite (избранное) и Back In Stock Notifier (подписка на размер). Всё выводится шорткодами.
- * Version:     2.5.0
+ * Version:     2.6.0
  * Requires PHP: 7.4
  * Requires at least: 5.8
  * Author:      —
@@ -17,7 +17,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'VLACC_VERSION', '2.5.0' );
+define( 'VLACC_VERSION', '2.6.0' );
 define( 'VLACC_FILE', __FILE__ );
 define( 'VLACC_PATH', plugin_dir_path( __FILE__ ) );
 define( 'VLACC_URL', plugin_dir_url( __FILE__ ) );
@@ -54,6 +54,7 @@ require_once VLACC_PATH . 'includes/class-vl-admin.php';
 require_once VLACC_PATH . 'includes/class-vl-identity-admin.php';
 
 // Интеграция с плагином «Simla.com» (woo-retailcrm).
+require_once VLACC_PATH . 'includes/integrations/class-vl-crm-client.php';
 require_once VLACC_PATH . 'includes/integrations/class-vl-retailcrm.php';
 require_once VLACC_PATH . 'includes/integrations/class-vl-retailcrm-customer.php';
 require_once VLACC_PATH . 'includes/integrations/class-vl-retailcrm-loyalty.php';
