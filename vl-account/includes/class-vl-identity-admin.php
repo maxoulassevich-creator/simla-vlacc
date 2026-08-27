@@ -667,14 +667,28 @@ class VL_Account_Identity_Admin {
 		}
 
 		if ( $user ) {
+			// Сначала смотрим, что лежит в кэше: именно это видит покупатель.
+			$before = VL_Account_RetailCRM::cached( $user->ID );
+
 			VL_Account_RetailCRM::flush( $user->ID );
 			$state = VL_Account_RetailCRM::account( $user->ID, true );
 
 			$report[ __( 'Кабинет покажет', 'vl-account' ) ] = sprintf(
-				'статус «%s», баллов: %s',
+				'статус «%s», доступно баллов: %s; ждут активации: %s; сгорят: %s',
 				$state['status'],
-				number_format_i18n( $state['amount'] )
+				number_format_i18n( $state['amount'] ),
+				number_format_i18n( $state['activation_sum'] ),
+				number_format_i18n( $state['burn_sum'] )
 			);
+
+			$report[ __( 'Было в кэше кабинета', 'vl-account' ) ] = null === $before
+				? __( 'пусто — кабинет спросит CRM при первом же открытии', 'vl-account' )
+				: sprintf(
+					/* translators: 1: баллы из кэша, 2: секунды жизни кэша. */
+					__( '%1$s баллов (кэш живёт %2$d сек. — столько данные могут отставать от CRM)', 'vl-account' ),
+					number_format_i18n( $before['amount'] ),
+					(int) VL_Account_RetailCRM::cache_ttl()
+				);
 
 			$crm_orders = VL_Account_RetailCRM::orders( $user->ID, 50 );
 

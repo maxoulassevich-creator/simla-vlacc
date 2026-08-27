@@ -19,11 +19,20 @@ $vl_promo    = VL_Account_Promo::get_user_codes( $user_id );
 // Уровень программы лояльности может давать не баллы, а постоянную скидку.
 $vl_lp_discount = 0;
 
+// Баллы за заказ становятся доступны не сразу: до этого CRM держит их
+// «в ожидании активации». На плитке видно только доступные, поэтому сумму
+// ожидания показываем отдельной строкой — иначе кажется, что баллы пропали.
+$vl_lp_waiting = 0;
+
 if ( class_exists( 'VL_Account_RetailCRM_Loyalty' ) && VL_Account_RetailCRM::loyalty_active() ) {
 	$vl_lp = VL_Account_RetailCRM::account( $user_id );
 
 	if ( 'active' === $vl_lp['status'] && VL_Account_RetailCRM_Loyalty::is_discount_level( $vl_lp ) ) {
 		$vl_lp_discount = (float) $vl_lp['level']['size'];
+	}
+
+	if ( 'active' === $vl_lp['status'] && ! empty( $vl_lp['activation_sum'] ) ) {
+		$vl_lp_waiting = (float) $vl_lp['activation_sum'];
 	}
 }
 ?>
@@ -47,6 +56,18 @@ if ( class_exists( 'VL_Account_RetailCRM_Loyalty' ) && VL_Account_RetailCRM::loy
 			<?php else : ?>
 				<span class="vl-card__value"><?php echo esc_html( number_format_i18n( $vl_bonus ) ); ?></span>
 				<span class="vl-card__label"><?php esc_html_e( 'баллов', 'vl-account' ); ?></span>
+
+				<?php if ( $vl_lp_waiting > 0 ) : ?>
+					<span class="vl-card__note">
+						<?php
+						printf(
+							/* translators: %s — сколько баллов ждут активации. */
+							esc_html__( '+%s ждут активации', 'vl-account' ),
+							esc_html( number_format_i18n( $vl_lp_waiting ) )
+						);
+						?>
+					</span>
+				<?php endif; ?>
 			<?php endif; ?>
 		</a>
 

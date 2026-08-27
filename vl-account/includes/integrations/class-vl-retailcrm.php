@@ -960,9 +960,14 @@ class VL_Account_RetailCRM {
 		$loyalty = self::loyalty();
 
 		if ( $loyalty ) {
-			$account['history']    = self::normalize_history( $loyalty->getLoyaltyHistory( $account['id'] ) );
-			$account['burn']       = self::first_bonus( $loyalty->getBonusDetails( $account['id'], 'burn_soon' ) );
-			$account['activation'] = self::first_bonus( $loyalty->getBonusDetails( $account['id'], 'waiting_activation' ) );
+			$burning = $loyalty->getBonusDetails( $account['id'], 'burn_soon' );
+			$waiting = $loyalty->getBonusDetails( $account['id'], 'waiting_activation' );
+
+			$account['history']        = self::normalize_history( $loyalty->getLoyaltyHistory( $account['id'] ) );
+			$account['burn']           = self::first_bonus( $burning );
+			$account['activation']     = self::first_bonus( $waiting );
+			$account['burn_sum']       = self::sum_bonus( $burning );
+			$account['activation_sum'] = self::sum_bonus( $waiting );
 		}
 
 		return $account;
@@ -1033,6 +1038,8 @@ class VL_Account_RetailCRM {
 			),
 			'burn'       => null,
 			'activation' => null,
+			'burn_sum'       => 0.0,
+			'activation_sum' => 0.0,
 			'history'    => array(),
 		);
 	}
@@ -1058,6 +1065,31 @@ class VL_Account_RetailCRM {
 			'amount' => isset( $first['amount'] ) ? (float) $first['amount'] : 0.0,
 			'date'   => isset( $first['date'] ) ? (string) $first['date'] : '',
 		);
+	}
+
+	/**
+	 * Сколько всего баллов в списке.
+	 *
+	 * CRM отдаёт ожидание активации и сгорание отдельными партиями с разными
+	 * датами. Для строки «ждут активации» нужна вся сумма, а не ближайшая.
+	 *
+	 * @param mixed $bonuses Ответ CRM.
+	 * @return float
+	 */
+	protected static function sum_bonus( $bonuses ) {
+		if ( ! is_array( $bonuses ) ) {
+			return 0.0;
+		}
+
+		$sum = 0.0;
+
+		foreach ( $bonuses as $bonus ) {
+			if ( is_array( $bonus ) && isset( $bonus['amount'] ) ) {
+				$sum += (float) $bonus['amount'];
+			}
+		}
+
+		return $sum;
 	}
 
 	/**
@@ -1381,6 +1413,21 @@ class VL_Account_RetailCRM {
 	 */
 	protected static function cache_key( $user_id ) {
 		return self::CACHE_PREFIX . (int) get_option( self::GENERATION_OPTION, 1 ) . '_' . (int) $user_id;
+	}
+
+	/**
+	 * Что о баллах лежит в кэше прямо сейчас.
+	 *
+	 * Кабинет показывает покупателю именно это значение, пока не истёк кэш.
+	 * В диагностике важно видеть его рядом со свежим ответом CRM.
+	 *
+	 * @param int $user_id Пользователь.
+	 * @return array|null
+	 */
+	public static function cached( $user_id ) {
+		$cached = get_transient( self::cache_key( (int) $user_id ) );
+
+		return is_array( $cached ) ? $cached : null;
 	}
 
 	/**

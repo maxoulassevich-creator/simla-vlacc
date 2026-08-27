@@ -81,7 +81,11 @@ WC_Retailcrm_Loyalty::$history = array(
 );
 WC_Retailcrm_Loyalty::$bonuses = array(
 	'burn_soon'          => array( array( 'amount' => 40, 'date' => '2026-09-01' ) ),
-	'waiting_activation' => array( array( 'amount' => 10, 'date' => '2026-08-20' ) ),
+	// Ожидание приходит партиями: баллы за заказ становятся доступны по датам.
+	'waiting_activation' => array(
+		array( 'amount' => 10, 'date' => '2026-08-20' ),
+		array( 'amount' => 1000, 'date' => '2026-09-10' ),
+	),
 );
 $account = VL_Account_RetailCRM::account( 1, true );
 check( 'выбрано активное участие', 'active' === $account['status'] && 12 === $account['id'], $account['id'] );
@@ -90,6 +94,9 @@ check( 'уровень', 'Серебро' === $account['level']['name'] );
 check( 'валюта', 'RUB' === $account['currency'] );
 check( 'сгорание', 40.0 === $account['burn']['amount'] );
 check( 'ожидание активации', 10.0 === $account['activation']['amount'] );
+check( 'ближайшая дата активации', '2026-08-20' === $account['activation']['date'] );
+check( 'сумма ожидания — по всем партиям', 1010.0 === $account['activation_sum'], var_export( $account['activation_sum'], true ) );
+check( 'сумма сгорания', 40.0 === $account['burn_sum'], var_export( $account['burn_sum'], true ) );
 check( 'история 3 строки', 3 === count( $account['history'] ) );
 check( 'подпись операции с заказом', false !== strpos( $account['history'][0]['description'], '501' ), $account['history'][0]['description'] );
 check( 'неизвестный тип не ломает', '' !== $account['history'][2]['description'] );
