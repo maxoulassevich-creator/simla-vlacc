@@ -383,6 +383,205 @@ $GLOBALS['wpdb']->rows = array(
 check( 'вторую карточку не навязываем', false === VL_Account_RetailCRM::rebind_card( 1620, 1223 ) );
 check( 'запросов в CRM не было', array() === WC_Retailcrm_Proxy::$calls, print_r( WC_Retailcrm_Proxy::$calls, true ) );
 
+echo "\n== 6. Новый аккаунт забирает существующую карточку ==\n";
+
+// Simla ищет клиента по почте, поэтому на повторной регистрации того же
+// телефона она заводит вторую карточку. Мы успеваем раньше: находим карточку
+// по номеру и проставляем ей externalId нового аккаунта.
+
+WC_Retailcrm_Proxy::$responses['customersFixExternalIds'] = new WC_Retailcrm_Response( 200, '{"success":true}' );
+WC_Retailcrm_Proxy::$responses['getLoyaltyAccountList']   = new WC_Retailcrm_Response( 200, '{"loyaltyAccounts":[]}' );
+unset( WC_Retailcrm_Proxy::$responses['customersGet'] );
+
+/**
+ * Подготовить снимок и обнулить счётчики перед проверкой.
+ *
+ * @param array $rows Строки снимка.
+ */
+function adopt_setup( $rows ) {
+	$GLOBALS['wpdb']->rows     = $rows;
+	WC_Retailcrm_Proxy::$calls = array();
+
+	VL_Account_RetailCRM_Directory::flush_cache();
+	VL_Account_RetailCRM::flush( 4001 );
+}
+
+adopt_setup( array( card( array( 'crm_id' => 9638, 'external_id' => 0 ) ) ) );
+
+$got = VL_Account_RetailCRM::adopt_card_for_new_user( 4001, '+7 904 776-78-97' );
+
+check( 'свободная карточка досталась новому аккаунту', 9638 === $got, (string) $got );
+check( 'externalId проставлен в CRM', in_array( 'customersFixExternalIds', WC_Retailcrm_Proxy::$calls, true ) );
+check( 'карточка сразу закреплена за аккаунтом', 9638 === VL_Account_RetailCRM::crm_customer_id( 4001 ) );
+
+// Карточка указывает на удалённый аккаунт — забираем как осиротевшую.
+adopt_setup( array( card( array( 'crm_id' => 8698, 'external_id' => 1223 ) ) ) );
+
+check( 'осиротевшая карточка досталась новому аккаунту', 8698 === VL_Account_RetailCRM::adopt_card_for_new_user( 4001, '79047767897' ) );
+
+// Карточка занята живым аккаунтом — не перехватываем.
+$GLOBALS['users'][1620] = new WP_User( array( 'ID' => 1620, 'user_email' => 'live@example.com' ) );
+
+adopt_setup( array( card( array( 'crm_id' => 9638, 'external_id' => 1620 ) ) ) );
+
+check( 'чужую живую карточку не забираем', 0 === VL_Account_RetailCRM::adopt_card_for_new_user( 4001, '79047767897' ) );
+check( 'externalId чужой карточки не тронут', ! in_array( 'customersFixExternalIds', WC_Retailcrm_Proxy::$calls, true ) );
+
+// На номере карточки разных людей — номеру верить нельзя, пусть Simla заводит свою.
+adopt_setup(
+	array(
+		card( array( 'crm_id' => 8700, 'email' => 'smirnova@example.com', 'external_id' => 0 ) ),
+		card( array( 'crm_id' => 8704, 'email' => 'aleksandr@example.com', 'external_id' => 0 ) ),
+	)
+);
+
+check( 'на спорном номере карточку не забираем', 0 === VL_Account_RetailCRM::adopt_card_for_new_user( 4001, '79047767897' ) );
+check( 'в CRM ничего не записано', ! in_array( 'customersFixExternalIds', WC_Retailcrm_Proxy::$calls, true ) );
+
+// Счёт программы лояльности — опора надёжнее снимка: он показывает ту самую
+// карточку владельца номера даже среди спорных.
+WC_Retailcrm_Proxy::$responses['getLoyaltyAccountList'] = new WC_Retailcrm_Response(
+	200,
+	'{"loyaltyAccounts":[{"id":9100,"active":true,"amount":740,"phoneNumber":"+79047767897","customerId":8704}]}'
+);
+WC_Retailcrm_Proxy::$responses['customersGet']          = new WC_Retailcrm_Response(
+	200,
+	'{"customer":{"id":8704,"firstName":"Александр","phones":[{"number":"+79047767897"}]}}'
+);
+
+adopt_setup(
+	array(
+		card( array( 'crm_id' => 8700, 'email' => 'smirnova@example.com', 'external_id' => 0 ) ),
+		card( array( 'crm_id' => 8704, 'email' => 'aleksandr@example.com', 'external_id' => 0 ) ),
+	)
+);
+
+check( 'карточку показал счёт программы лояльности', 8704 === VL_Account_RetailCRM::adopt_card_for_new_user( 4001, '79047767897' ) );
+
+// Счёт с нашим номером на карточке с чужим телефоном якорем не считается.
+WC_Retailcrm_Proxy::$responses['customersGet'] = new WC_Retailcrm_Response(
+	200,
+	'{"customer":{"id":8704,"firstName":"Ярослав","phones":[{"number":"+79999999999"}]}}'
+);
+
+adopt_setup(
+	array(
+		card( array( 'crm_id' => 8700, 'email' => 'smirnova@example.com', 'external_id' => 0 ) ),
+		card( array( 'crm_id' => 8704, 'email' => 'aleksandr@example.com', 'external_id' => 0 ) ),
+	)
+);
+
+check( 'карточка с чужим телефоном якорем не стала', 0 === VL_Account_RetailCRM::adopt_card_for_new_user( 4001, '79047767897' ) );
+
+WC_Retailcrm_Proxy::$responses['getLoyaltyAccountList'] = new WC_Retailcrm_Response( 200, '{"loyaltyAccounts":[]}' );
+unset( WC_Retailcrm_Proxy::$responses['customersGet'] );
+
+// Без номера и с выключенной привязкой по телефону делать нечего.
+adopt_setup( array( card( array( 'crm_id' => 9638, 'external_id' => 0 ) ) ) );
+
+check( 'без номера карточку не ищем', 0 === VL_Account_RetailCRM::adopt_card_for_new_user( 4001, '' ) );
+
+VL_Account_Settings::update( array( 'crm_link_by_phone' => 0 ) );
+adopt_setup( array( card( array( 'crm_id' => 9638, 'external_id' => 0 ) ) ) );
+
+check( 'привязка по телефону выключена — не забираем', 0 === VL_Account_RetailCRM::adopt_card_for_new_user( 4001, '79047767897' ) );
+
+VL_Account_Settings::update( array( 'crm_link_by_phone' => 1 ) );
+
+echo "\n== 6.1. Создание карточки у Simla снимается ==\n";
+
+/** Заглушка объекта Simla, у которого создание клиента висит на user_register. */
+class Fake_Simla_Base extends WC_Retailcrm_Base {
+	public function create_customer( $id ) {
+		$GLOBALS['log'][] = array( 'simla_create_customer', $id );
+	}
+}
+
+/** Заглушка реестра хуков WordPress. */
+class Fake_Hook {
+	public $callbacks = array();
+}
+
+$simla = new Fake_Simla_Base();
+
+/**
+ * Собрать $wp_filter с хуком Simla, как это делает WordPress.
+ *
+ * @param object $simla Объект Simla.
+ */
+function hook_simla( $simla ) {
+	$hook                     = new Fake_Hook();
+	$hook->callbacks          = array(
+		10 => array(
+			'simla' => array(
+				'function'      => array( $simla, 'create_customer' ),
+				'accepted_args' => 1,
+			),
+		),
+	);
+	$GLOBALS['wp_filter']     = array( 'user_register' => $hook );
+	$GLOBALS['removed_actions'] = array();
+}
+
+VL_Account_Settings::update( array( 'crm_sync_customer' => 1 ) );
+
+hook_simla( $simla );
+adopt_setup( array( card( array( 'crm_id' => 9638, 'external_id' => 0 ) ) ) );
+
+VL_Account_RetailCRM_Customer::expect_phone( '79047767897' );
+VL_Account_RetailCRM_Customer::instance()->claim_existing_card( 4001 );
+
+check( 'карточка забрана при регистрации', 9638 === VL_Account_RetailCRM::crm_customer_id( 4001 ) );
+check( 'создание клиента у Simla снято', array() === $GLOBALS['wp_filter']['user_register']->callbacks[10], print_r( $GLOBALS['removed_actions'], true ) );
+
+// Пропуск действует ровно на один аккаунт: следом хук Simla возвращается.
+$GLOBALS['actions']['user_register'] = array();
+
+VL_Account_RetailCRM_Customer::instance()->restore_simla_create();
+
+check( 'хук Simla возвращён после регистрации', array( array( $simla, 'create_customer' ) ) == $GLOBALS['actions']['user_register'], print_r( $GLOBALS['actions']['user_register'], true ) ); // phpcs:ignore WordPress.PHP.StrictComparisons.LooseComparison -- сравниваем объекты по содержимому.
+
+$GLOBALS['actions']['user_register'] = array();
+
+VL_Account_RetailCRM_Customer::instance()->restore_simla_create();
+
+check( 'второй раз возвращать нечего', array() === $GLOBALS['actions']['user_register'] );
+
+// Номер не передали (регистрация не из кабинета) — в чужие хуки не лезем.
+hook_simla( $simla );
+adopt_setup( array( card( array( 'crm_id' => 9638, 'external_id' => 0 ) ) ) );
+
+VL_Account_RetailCRM_Customer::instance()->claim_existing_card( 4001 );
+
+check( 'без номера хук Simla на месте', 1 === count( $GLOBALS['wp_filter']['user_register']->callbacks[10] ) );
+
+// Номер спорный, карточку не забрали — Simla должна отработать как обычно.
+hook_simla( $simla );
+adopt_setup(
+	array(
+		card( array( 'crm_id' => 8700, 'email' => 'smirnova@example.com', 'external_id' => 0 ) ),
+		card( array( 'crm_id' => 8704, 'email' => 'aleksandr@example.com', 'external_id' => 0 ) ),
+	)
+);
+
+VL_Account_RetailCRM_Customer::expect_phone( '79047767897' );
+VL_Account_RetailCRM_Customer::instance()->claim_existing_card( 4001 );
+
+check( 'карточку не забрали — хук Simla на месте', 1 === count( $GLOBALS['wp_filter']['user_register']->callbacks[10] ) );
+
+// Номер запоминается на одну регистрацию: следующий аккаунт его не унаследует.
+hook_simla( $simla );
+adopt_setup( array( card( array( 'crm_id' => 9638, 'external_id' => 0 ) ) ) );
+
+VL_Account_RetailCRM_Customer::expect_phone( '79047767897' );
+VL_Account_RetailCRM_Customer::instance()->claim_existing_card( 4001 );
+VL_Account_RetailCRM::flush( 4002 );
+VL_Account_RetailCRM_Customer::instance()->claim_existing_card( 4002 );
+
+check( 'номер не переходит следующему аккаунту', 0 === VL_Account_RetailCRM::crm_customer_id( 4002 ) );
+
+unset( $GLOBALS['wp_filter'] );
+
 echo "\n------------------------------------------------------------\n";
 echo "Пройдено: $pass, провалено: $fail\n";
 

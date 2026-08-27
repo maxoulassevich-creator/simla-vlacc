@@ -20,7 +20,21 @@ $GLOBALS['log']        = array();
 
 function add_action( $hook, $cb, $priority = 10, $args = 1 ) { $GLOBALS['actions'][ $hook ][] = $cb; }
 function add_filter( $hook, $cb, $priority = 10, $args = 1 ) { $GLOBALS['filters'][ $hook ][] = $cb; }
-function remove_action( ...$a ) { return true; }
+$GLOBALS['removed_actions'] = array();
+/** Снятие хука: запоминаем и, если тест собрал $wp_filter, вычёркиваем из него. */
+function remove_action( $hook, $cb = null, $priority = 10 ) {
+	$GLOBALS['removed_actions'][] = array( $hook, $cb, $priority );
+
+	if ( isset( $GLOBALS['wp_filter'][ $hook ]->callbacks[ $priority ] ) ) {
+		foreach ( $GLOBALS['wp_filter'][ $hook ]->callbacks[ $priority ] as $key => $item ) {
+			if ( ( $item['function'] ?? null ) === $cb ) {
+				unset( $GLOBALS['wp_filter'][ $hook ]->callbacks[ $priority ][ $key ] );
+			}
+		}
+	}
+
+	return true;
+}
 function add_shortcode( $t, $cb ) {}
 function apply_filters( $hook, $value, ...$args ) {
 	if ( empty( $GLOBALS['filters'][ $hook ] ) ) { return $value; }

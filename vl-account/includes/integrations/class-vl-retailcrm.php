@@ -785,6 +785,88 @@ class VL_Account_RetailCRM {
 	}
 
 	/**
+	 * Отдать новому аккаунту карточку, которая уже есть в CRM на этом номере.
+	 *
+	 * Simla заводит клиента на хуке user_register и ищет его **по почте**
+	 * (customersList['email']). Технический адрес вида 79001234567@phone.сайт
+	 * мы в CRM не отправляем, поэтому у существующей карточки его нет — и Simla
+	 * создаёт вторую карточку на того же человека. Так у покупателя, который
+	 * заводит аккаунт заново, в CRM появляются дубли, а баллы остаются на
+	 * старой карточке и не тратятся.
+	 *
+	 * Здесь мы успеваем раньше: находим карточку по номеру и проставляем ей
+	 * externalId нового аккаунта. Дальше данные в неё дошлёт наш же вызов
+	 * updateCustomer у Simla — карточка одна.
+	 *
+	 * Забираем только свободную или осиротевшую карточку: занятую живым
+	 * аккаунтом не трогаем, номер с карточками разных людей пропускаем.
+	 *
+	 * @param int    $user_id Новый аккаунт.
+	 * @param string $phone   Нормализованный номер.
+	 * @return int ID карточки CRM или 0.
+	 */
+	public static function adopt_card_for_new_user( $user_id, $phone ) {
+		$phone = VL_Account_Phone::normalize( $phone );
+
+		if ( ! $user_id || '' === $phone || ! self::enabled() ) {
+			return 0;
+		}
+
+		if ( ! VL_Account_Settings::get( 'crm_link_by_phone', 1 ) || ! class_exists( 'VL_Account_RetailCRM_Directory' ) ) {
+			return 0;
+		}
+
+		if ( ! self::writer() ) {
+			return 0;
+		}
+
+		// Карточка счёта программы лояльности — самая надёжная; если счёта нет,
+		// берём единственную карточку номера.
+		$card = VL_Account_RetailCRM_Directory::card_by_loyalty( self::api(), $phone );
+		$row  = is_array( $card ) && ! empty( $card['id'] )
+			? VL_Account_RetailCRM_Directory::row_from_customer( $card, $phone )
+			: false;
+
+		if ( ! $row ) {
+			$found = VL_Account_RetailCRM_Directory::find_by_phone( $phone );
+
+			if ( ! $found || '' !== VL_Account_RetailCRM_Directory::conflict_reason( $found ) ) {
+				return 0;
+			}
+
+			$row = $found;
+		}
+
+		if ( empty( $row['crm_id'] ) ) {
+			return 0;
+		}
+
+		$external = ! empty( $row['external_id'] ) ? (int) $row['external_id'] : 0;
+
+		// Карточка занята живым аккаунтом — не перехватываем.
+		if ( $external && get_user_by( 'id', $external ) ) {
+			return 0;
+		}
+
+		if ( ! self::assign_external_id( (int) $row['crm_id'], $user_id ) ) {
+			return 0;
+		}
+
+		self::$crm_ids[ (int) $user_id ] = (int) $row['crm_id'];
+
+		self::log(
+			'Новый аккаунт получил существующую карточку CRM — дубль не заводим',
+			array(
+				'user_id' => $user_id,
+				'crm_id'  => (int) $row['crm_id'],
+				'было'    => $external,
+			)
+		);
+
+		return (int) $row['crm_id'];
+	}
+
+	/**
 	 * Проставить карточке CRM externalId — ID пользователя сайта.
 	 *
 	 * После этого покупателя находят и наш мост, и сам плагин Simla.

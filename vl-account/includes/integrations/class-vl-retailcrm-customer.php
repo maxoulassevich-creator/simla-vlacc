@@ -48,6 +48,13 @@ class VL_Account_RetailCRM_Customer {
 	 * Конструктор.
 	 */
 	private function __construct() {
+		// Раньше Simla: у неё создание клиента висит на user_register с
+		// приоритетом 10, а нам нужно успеть отдать новому аккаунту карточку,
+		// которая уже есть в CRM на этом номере. Следом возвращаем её хук на
+		// место: пропуск действует ровно на один аккаунт.
+		add_action( 'user_register', array( $this, 'claim_existing_card' ), 1 );
+		add_action( 'user_register', array( $this, 'restore_simla_create' ), 11 );
+
 		// Досылаем покупателя после того, как кабинет заполнил телефон и согласия.
 		add_action( 'vlacc_user_registered', array( $this, 'on_registered' ), 20, 2 );
 		add_action( 'vlacc_email_confirmed', array( $this, 'on_email_confirmed' ), 20, 2 );
@@ -73,6 +80,116 @@ class VL_Account_RetailCRM_Customer {
 	 */
 	public static function sync_enabled() {
 		return VL_Account_RetailCRM::enabled() && VL_Account_Settings::get( 'crm_sync_customer', 1 );
+	}
+
+	/**
+	 * Номер, с которым прямо сейчас заводится аккаунт.
+	 *
+	 * В момент user_register телефона в метаполях ещё нет: кабинет пишет его
+	 * сразу после wp_insert_user. Поэтому номер передаём напрямую.
+	 *
+	 * @var string
+	 */
+	protected static $registering = '';
+
+	/**
+	 * Запомнить номер перед созданием аккаунта.
+	 *
+	 * @param string $phone Нормализованный номер.
+	 */
+	public static function expect_phone( $phone ) {
+		self::$registering = (string) $phone;
+	}
+
+	/**
+	 * Отдать новому аккаунту карточку, которая уже есть в CRM на этом номере.
+	 *
+	 * Simla ищет клиента по почте, а технический адрес вида @phone.сайт мы
+	 * в CRM не отправляем — поэтому на второй регистрации того же телефона
+	 * она заводит вторую карточку. Мы успеваем раньше: проставляем ей
+	 * externalId и снимаем создание Simla на этот запрос, а данные дошлём
+	 * её же методом updateCustomer.
+	 *
+	 * @param int $user_id Новый пользователь.
+	 */
+	public function claim_existing_card( $user_id ) {
+		$phone = self::$registering;
+
+		self::$registering = '';
+
+		if ( '' === $phone || ! self::sync_enabled() ) {
+			return;
+		}
+
+		if ( ! VL_Account_RetailCRM::adopt_card_for_new_user( $user_id, $phone ) ) {
+			return;
+		}
+
+		self::skip_simla_create();
+	}
+
+	/**
+	 * Снятые хуки Simla: что вернуть после регистрации.
+	 *
+	 * @var array
+	 */
+	protected static $removed = array();
+
+	/**
+	 * Снять создание клиента у Simla для текущего аккаунта.
+	 *
+	 * Карточка в CRM уже есть и уже привязана к аккаунту — второй быть
+	 * не должно. Обновит её наш же вызов updateCustomer у Simla.
+	 */
+	protected static function skip_simla_create() {
+		global $wp_filter;
+
+		self::$removed = array();
+
+		if ( empty( $wp_filter['user_register'] ) ) {
+			return;
+		}
+
+		foreach ( $wp_filter['user_register']->callbacks as $priority => $callbacks ) {
+			foreach ( $callbacks as $callback ) {
+				if ( ! is_array( $callback['function'] ) || ! is_object( $callback['function'][0] ) ) {
+					continue;
+				}
+
+				if ( ! $callback['function'][0] instanceof WC_Retailcrm_Base || 'create_customer' !== $callback['function'][1] ) {
+					continue;
+				}
+
+				remove_action( 'user_register', $callback['function'], $priority );
+
+				self::$removed[] = array(
+					'function'      => $callback['function'],
+					'priority'      => (int) $priority,
+					'accepted_args' => isset( $callback['accepted_args'] ) ? (int) $callback['accepted_args'] : 1,
+				);
+
+				VL_Account_RetailCRM::log( 'Создание карточки у Simla пропущено: карточка уже есть' );
+			}
+		}
+	}
+
+	/**
+	 * Вернуть снятые хуки Simla.
+	 *
+	 * Пропуск нужен ровно на тот аккаунт, которому мы отдали готовую карточку.
+	 * Если в одном запросе заводится ещё один пользователь (импорт, админка),
+	 * Simla должна отработать по-своему.
+	 */
+	public function restore_simla_create() {
+		if ( ! self::$removed ) {
+			return;
+		}
+
+		foreach ( self::$removed as $hook ) {
+			add_action( 'user_register', $hook['function'], $hook['priority'], $hook['accepted_args'] );
+		}
+
+		self::$removed = array();
 	}
 
 	/**

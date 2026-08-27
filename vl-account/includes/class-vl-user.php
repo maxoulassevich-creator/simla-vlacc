@@ -235,6 +235,13 @@ class VL_Account_User {
 			$display = $phone ? VL_Account_Phone::format( $phone ) : $email;
 		}
 
+		// Пусть мост CRM успеет забрать карточку этого номера до того, как
+		// Simla заведёт новую: её хук на user_register сработает внутри
+		// wp_insert_user, когда телефона в метаполях ещё нет.
+		if ( $phone && class_exists( 'VL_Account_RetailCRM_Customer' ) ) {
+			VL_Account_RetailCRM_Customer::expect_phone( $phone );
+		}
+
 		$user_id = wp_insert_user(
 			array(
 				'user_login'   => self::build_username( $phone, $email, $data['first_name'] ),
