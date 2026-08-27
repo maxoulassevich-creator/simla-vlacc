@@ -84,14 +84,21 @@ $vl_discount = $vl_crm && class_exists( 'VL_Account_RetailCRM_Loyalty' )
 
 			<div class="vl-info-list">
 				<?php if ( ! $vl_discount && ! empty( $vl_account['activation'] ) ) : ?>
+					<?php
+					// Партий ожидания бывает несколько: показываем всю сумму,
+					// а дату — ближайшую, иначе часть баллов выглядит пропавшей.
+					$vl_waiting = ! empty( $vl_account['activation_sum'] )
+						? (float) $vl_account['activation_sum']
+						: (float) $vl_account['activation']['amount'];
+					?>
 					<div class="vl-info-list__row">
 						<span class="vl-info-list__label"><?php esc_html_e( 'Ждут активации', 'vl-account' ); ?></span>
 						<span class="vl-info-list__value">
 							<?php
 							printf(
 								/* translators: 1: баллы, 2: дата. */
-								esc_html__( '%1$s — станут доступны %2$s', 'vl-account' ),
-								esc_html( number_format_i18n( $vl_account['activation']['amount'] ) ),
+								esc_html__( '%1$s — ближайшие станут доступны %2$s', 'vl-account' ),
+								esc_html( number_format_i18n( $vl_waiting ) ),
 								esc_html( $vl_account['activation']['date'] )
 							);
 							?>
@@ -100,6 +107,11 @@ $vl_discount = $vl_crm && class_exists( 'VL_Account_RetailCRM_Loyalty' )
 				<?php endif; ?>
 
 				<?php if ( ! $vl_discount && ! empty( $vl_account['burn'] ) ) : ?>
+					<?php
+					$vl_burning = ! empty( $vl_account['burn_sum'] )
+						? (float) $vl_account['burn_sum']
+						: (float) $vl_account['burn']['amount'];
+					?>
 					<div class="vl-info-list__row">
 						<span class="vl-info-list__label"><?php esc_html_e( 'Сгорят', 'vl-account' ); ?></span>
 						<span class="vl-info-list__value vl-negative">
@@ -107,7 +119,7 @@ $vl_discount = $vl_crm && class_exists( 'VL_Account_RetailCRM_Loyalty' )
 							printf(
 								/* translators: 1: баллы, 2: дата. */
 								esc_html__( '%1$s — до %2$s', 'vl-account' ),
-								esc_html( number_format_i18n( $vl_account['burn']['amount'] ) ),
+								esc_html( number_format_i18n( $vl_burning ) ),
 								esc_html( $vl_account['burn']['date'] )
 							);
 							?>

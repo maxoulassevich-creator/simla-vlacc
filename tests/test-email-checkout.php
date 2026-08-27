@@ -188,6 +188,15 @@ Fake_Directory::$rows = array(
 
 check( 'адрес чужой карточки CRM отклонён', is_wp_error( VL_Account_Email_Confirm::attach_now( 22, 'crmclient@example.com' ) ) );
 
+// Карточка CRM с этой почтой без телефона и без externalId — тоже чужая:
+// её завёл менеджер, и за ней стоит история другого человека.
+user( 23, '79004444444@phone.site', '79004444444' );
+Fake_Directory::$rows = array(
+	array( 'crm_id' => 502, 'email' => 'manual@example.com', 'phone' => '', 'external_id' => 0 ),
+);
+
+check( 'карточка CRM без телефона тоже блокирует', is_wp_error( VL_Account_Email_Confirm::attach_now( 23, 'manual@example.com' ) ) );
+
 // Карточка CRM с этим же номером — это он сам.
 Fake_Directory::$rows = array(
 	array( 'crm_id' => 501, 'email' => 'mycard@example.com', 'phone' => '79003333333', 'external_id' => 0 ),

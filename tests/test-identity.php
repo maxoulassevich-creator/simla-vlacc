@@ -184,6 +184,35 @@ $GLOBALS['orders'][0]->customer_id = 21;
 
 check( 'заказ из кабинета аккаунт выдаёт', 21 === VL_Account_Identity::find_by_orders( '79261234567' ) );
 
+echo "\n== 3.0. Смена номера в аккаунте видна в журнале ==\n";
+reset_world();
+
+make_user( 28, 'moved@example.com' );
+update_user_meta( 28, VL_Account_User::META_PHONE, '79261111111' );
+
+VL_Account_Identity::attach_phone( 28, '79262222222' );
+
+$changed = false;
+
+foreach ( $GLOBALS['log'] as $entry ) {
+	if ( false !== mb_strpos( $entry[0], 'conflict' ) ) { $changed = true; }
+}
+
+check( 'новый номер записан', '79262222222' === (string) get_user_meta( 28, VL_Account_User::META_PHONE, true ) );
+check( 'смена номера попала в журнал', $changed, print_r( $GLOBALS['log'], true ) );
+
+// Тот же номер повторно — это не смена, журнал молчит.
+$GLOBALS['log'] = array();
+VL_Account_Identity::attach_phone( 28, '79262222222' );
+
+$again = false;
+
+foreach ( $GLOBALS['log'] as $entry ) {
+	if ( false !== mb_strpos( $entry[0], 'conflict' ) ) { $again = true; }
+}
+
+check( 'повторный вход журнал не засоряет', ! $again );
+
 echo "\n== 3.1. Гостевой заказ не открывает чужой кабинет ==\n";
 reset_world();
 

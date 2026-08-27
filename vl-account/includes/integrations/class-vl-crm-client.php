@@ -329,9 +329,13 @@ class VL_Account_CRM_Client {
 	 * @return VL_Account_CRM_Response
 	 */
 	public function getDetailClientBonus( $id, $status, $filter = array(), $limit = null, $page = null ) { // phpcs:ignore WordPress.NamingConventions.ValidFunctionName.MethodNameInvalid -- совместимость с клиентом Simla.
+		$params           = $this->paging( $filter, $page, $limit );
+		$params['id']     = (int) $id;
+		$params['status'] = (string) $status;
+
 		return $this->get(
 			'/loyalty/account/' . (int) $id . '/bonus/' . rawurlencode( (string) $status ) . '/details',
-			$this->paging( $filter, $page, $limit )
+			$params
 		);
 	}
 

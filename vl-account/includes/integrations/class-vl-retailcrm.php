@@ -1049,11 +1049,11 @@ class VL_Account_RetailCRM {
 				'size'       => 0.0,
 				'size_promo' => 0.0,
 			),
-			'burn'       => null,
-			'activation' => null,
+			'burn'           => null,
+			'activation'     => null,
 			'burn_sum'       => 0.0,
 			'activation_sum' => 0.0,
-			'history'    => array(),
+			'history'        => array(),
 		);
 	}
 
@@ -1536,7 +1536,7 @@ class VL_Account_RetailCRM {
 			$parts[] = $error;
 		}
 
-		return $parts ? '(' . implode( '; ', $parts ) . ')' : '';
+		return $parts ? '(' . implode( '; ', $parts ) . ')' : '—';
 	}
 
 	/**
