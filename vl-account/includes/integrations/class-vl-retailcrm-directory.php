@@ -958,7 +958,9 @@ class VL_Account_RetailCRM_Directory {
 		if ( $crm_id && ! isset( $customers[ $crm_id ] ) ) {
 			$customer = self::fetch_customer( $api, $crm_id );
 
-			if ( $customer ) {
+			// Карточка, в которой самого номера нет, — чужая: счёт программы
+			// мог быть заведён на неё по ошибке (в том числе нашей).
+			if ( $customer && self::has_phone( $customer, $phone ) ) {
 				$customers[ $crm_id ] = $customer;
 			}
 		}
@@ -1188,7 +1190,22 @@ class VL_Account_RetailCRM_Directory {
 
 		$crm_id = self::customer_id_from_account( $account );
 
-		return $crm_id ? self::fetch_customer( $api, $crm_id ) : false;
+		if ( ! $crm_id ) {
+			return false;
+		}
+
+		$customer = self::fetch_customer( $api, $crm_id );
+
+		// Счёт программы заводится по номеру, а карточка — по externalId, и
+		// эти двое расходятся: счёт с нашим номером может висеть на карточке
+		// постороннего человека. Карточку берём, только если номер есть и в ней.
+		if ( ! is_array( $customer ) || ! self::has_phone( $customer, $phone ) ) {
+			self::log_attempt( $phone, 'loyalty-карточка-без-номера', false, $crm_id );
+
+			return false;
+		}
+
+		return $customer;
 	}
 
 	/**

@@ -628,13 +628,22 @@ class VL_Account_Identity_Admin {
 		$lines    = array();
 
 		foreach ( $accounts as $item ) {
+			$card_id  = VL_Account_RetailCRM_Directory::customer_id_from_account( $item );
+			$card     = $card_id ? VL_Account_RetailCRM_Directory::fetch_customer( $api, $card_id ) : false;
+			$card_has = is_array( $card ) && VL_Account_RetailCRM_Directory::has_phone( $card, $normalized );
+
 			$lines[] = sprintf(
-				'id %d, %s, баллов: %s, уровень: %s%s',
+				'счёт %d, %s, баллов: %s, уровень: %s; карточка CRM %d (externalId %s, %s %s), номер в карточке: %s%s',
 				isset( $item['id'] ) ? (int) $item['id'] : 0,
 				empty( $item['active'] ) ? __( 'не активировано', 'vl-account' ) : __( 'активно', 'vl-account' ),
 				isset( $item['amount'] ) ? (string) $item['amount'] : '0',
 				isset( $item['level']['name'] ) ? $item['level']['name'] : '—',
-				( $account && isset( $account['id'], $item['id'] ) && $account['id'] === $item['id'] ) ? ' ← берём этот' : ''
+				$card_id,
+				( is_array( $card ) && ! empty( $card['externalId'] ) ) ? (int) $card['externalId'] : '—',
+				is_array( $card ) && isset( $card['firstName'] ) ? $card['firstName'] : '',
+				is_array( $card ) && isset( $card['lastName'] ) ? $card['lastName'] : '',
+				$card_has ? __( 'тот же', 'vl-account' ) : __( 'ДРУГОЙ — счёт заведён на чужую карточку, кабинет его не возьмёт', 'vl-account' ),
+				( $account && isset( $account['id'], $item['id'] ) && $account['id'] === $item['id'] && $card_has ) ? ' ← берём этот' : ''
 			);
 		}
 

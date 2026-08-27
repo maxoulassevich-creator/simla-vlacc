@@ -346,6 +346,7 @@ class VL_Account_RetailCRM {
 		}
 
 		$accounts = VL_Account_RetailCRM_Directory::loyalty_accounts_by_phone( $api, $phone );
+		$accounts = self::own_loyalty_accounts( $api, $accounts, $phone, $user_id );
 
 		if ( ! $accounts ) {
 			return array();
@@ -380,6 +381,64 @@ class VL_Account_RetailCRM {
 		);
 
 		return $accounts;
+	}
+
+	/**
+	 * Отсеять счета программы, заведённые на чужую карточку.
+	 *
+	 * Номер у счёта программы свой и с карточкой клиента может не совпадать:
+	 * счёт заводится по номеру, а карточка — по externalId. Если эти двое
+	 * разошлись, по номеру находится участие постороннего человека, и кабинет
+	 * показывает чужие баллы. Поэтому счёт принимаем, только когда карточка
+	 * его владельца подтверждает номер или уже принадлежит этому аккаунту.
+	 *
+	 * @param object $api      Клиент API.
+	 * @param array  $accounts Счета из CRM.
+	 * @param string $phone    Нормализованный номер.
+	 * @param int    $user_id  Пользователь сайта.
+	 * @return array
+	 */
+	public static function own_loyalty_accounts( $api, $accounts, $phone, $user_id = 0 ) {
+		$own = array();
+
+		foreach ( (array) $accounts as $account ) {
+			$crm_id = VL_Account_RetailCRM_Directory::customer_id_from_account( $account );
+
+			if ( ! $crm_id ) {
+				continue;
+			}
+
+			$customer = VL_Account_RetailCRM_Directory::fetch_customer( $api, $crm_id );
+
+			// Карточку прочитать не удалось (нет связи, карточки уже нет) —
+			// доказательств чужого владельца тоже нет, счёт оставляем.
+			if ( ! is_array( $customer ) ) {
+				$own[] = $account;
+
+				continue;
+			}
+
+			$external = isset( $customer['externalId'] ) ? (int) $customer['externalId'] : 0;
+			$mine     = $user_id && $external === (int) $user_id;
+
+			if ( ! $mine && ! VL_Account_RetailCRM_Directory::has_phone( $customer, $phone ) ) {
+				self::log(
+					'Счёт программы лояльности заведён на чужую карточку — пропускаем',
+					array(
+						'user_id'    => $user_id,
+						'crm_id'     => $crm_id,
+						'externalId' => $external,
+						'счёт'       => isset( $account['id'] ) ? (int) $account['id'] : 0,
+					)
+				);
+
+				continue;
+			}
+
+			$own[] = $account;
+		}
+
+		return $own;
 	}
 
 	/**

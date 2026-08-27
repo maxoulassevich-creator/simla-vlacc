@@ -310,6 +310,41 @@ $found = VL_Account_RetailCRM_Directory::loyalty_accounts_by_phone( $api, '79047
 
 check( 'свой счёт находится', 1 === count( $found ) && 9003 === (int) $found[0]['id'], print_r( $found, true ) );
 
+echo "\n== 4.2.1. Счёт с нашим номером на чужой карточке ==\n";
+
+// Так и вышло на живой базе: участие в ПЛ завели с номером покупателя, но на
+// карточке постороннего человека — у него в карточке свой, другой телефон.
+$foreign = array( 'id' => 2853, 'active' => true, 'amount' => 48, 'customerId' => 8867, 'phoneNumber' => '+79047767897' );
+$mine    = array( 'id' => 2900, 'active' => true, 'amount' => 1000, 'customerId' => 9638, 'phoneNumber' => '+79047767897' );
+
+WC_Retailcrm_Proxy::$responses['customersGet'] = function ( $args ) {
+	$id = (int) ( $args[0] ?? 0 );
+
+	// 8867 — карточка постороннего: номер в ней другой.
+	if ( 8867 === $id ) {
+		return new WC_Retailcrm_Response( 200, '{"customer":{"id":8867,"externalId":146,"firstName":"Ярослав","phones":[{"number":"+79999999999"}]}}' );
+	}
+
+	return new WC_Retailcrm_Response( 200, '{"customer":{"id":9638,"firstName":"Александр","phones":[{"number":"+79047767897"}]}}' );
+};
+
+$api  = VL_Account_RetailCRM::api();
+$own  = VL_Account_RetailCRM::own_loyalty_accounts( $api, array( $foreign, $mine ), '79047767897', 1620 );
+$ids  = wp_list_pluck( $own, 'id' );
+
+check( 'чужой счёт отброшен', ! in_array( 2853, $ids, true ), print_r( $ids, true ) );
+check( 'свой счёт остался', array( 2900 ) === array_map( 'intval', $ids ), print_r( $ids, true ) );
+
+// Карточка привязана к нашему аккаунту — счёт наш, даже если номера в ней нет.
+$linked = VL_Account_RetailCRM::own_loyalty_accounts( $api, array( $foreign ), '79047767897', 146 );
+
+check( 'карточка своего аккаунта не отбрасывается', 1 === count( $linked ) );
+
+// Карточку не прочитать — доказательств чужого владельца нет, счёт оставляем.
+WC_Retailcrm_Proxy::$responses['customersGet'] = new WC_Retailcrm_Response( 404, '{}' );
+
+check( 'нечитаемая карточка счёт не убивает', 1 === count( VL_Account_RetailCRM::own_loyalty_accounts( $api, array( $mine ), '79047767897', 1620 ) ) );
+
 echo "\n== 4.3. Карточки номера можно забыть ==\n";
 
 $GLOBALS['wpdb']->rows = array(
