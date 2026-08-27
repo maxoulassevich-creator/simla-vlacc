@@ -321,7 +321,10 @@ class VL_Account_RetailCRM {
 
 		self::$loyalty = false;
 
-		$api = self::api();
+		// Объект Simla не только читает: он регистрирует участие, активирует
+		// его и подтверждает код. Значит ему нужен пишущий транспорт Simla —
+		// наш ключ работает только на чтение и все эти вызовы отклонит.
+		$api = self::writer();
 
 		if ( ! $api || ! self::loyalty_active() ) {
 			return self::$loyalty;
@@ -343,7 +346,8 @@ class VL_Account_RetailCRM {
 	 * @return WC_Retailcrm_Customers|false
 	 */
 	public static function customers() {
-		$api = self::api();
+		// Выгрузка покупателя в CRM — запись, транспорт только от Simla.
+		$api = self::writer();
 
 		if ( ! $api || ! class_exists( 'WC_Retailcrm_Customers' ) || ! class_exists( 'WC_Retailcrm_Customer_Address' ) ) {
 			return false;

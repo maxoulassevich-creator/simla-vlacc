@@ -312,7 +312,27 @@ class VL_Account_CRM_Client {
 	 * @return VL_Account_CRM_Response
 	 */
 	public function getClientBonusHistory( $id, $filter = array(), $limit = null, $page = null ) { // phpcs:ignore WordPress.NamingConventions.ValidFunctionName.MethodNameInvalid -- совместимость с клиентом Simla.
-		return $this->get( '/loyalty/account/' . (int) $id . '/bonus/operations', $this->paging( $filter, $page, $limit ) );
+		$params       = $this->paging( $filter, $page, $limit );
+		$params['id'] = (int) $id;
+
+		return $this->get( '/loyalty/account/' . (int) $id . '/bonus/operations', $params );
+	}
+
+	/**
+	 * Баллы в ожидании активации или на сгорании.
+	 *
+	 * @param int    $id     Участие.
+	 * @param string $status waiting_activation | burn_soon.
+	 * @param array  $filter Фильтр.
+	 * @param int    $limit  Размер страницы.
+	 * @param int    $page   Страница.
+	 * @return VL_Account_CRM_Response
+	 */
+	public function getDetailClientBonus( $id, $status, $filter = array(), $limit = null, $page = null ) { // phpcs:ignore WordPress.NamingConventions.ValidFunctionName.MethodNameInvalid -- совместимость с клиентом Simla.
+		return $this->get(
+			'/loyalty/account/' . (int) $id . '/bonus/' . rawurlencode( (string) $status ) . '/details',
+			$this->paging( $filter, $page, $limit )
+		);
 	}
 
 	/* ------------------------------------------------------------------

@@ -176,6 +176,52 @@ $response        = $empty->customersList();
 check( 'запрос не ушёл', array() === $GLOBALS['http'] );
 check( 'ответ — ошибка', ! $response->isSuccessful() );
 
+echo "\n== 6. Со своим ключом пишет по-прежнему Simla ==\n";
+
+// Мост: чтение — нашим клиентом, запись — транспортом Simla. Объекты Simla
+// (лояльность, выгрузка покупателя) сами и читают, и пишут, поэтому наш
+// клиент им передавать нельзя: он отклонит любую запись.
+require_once VLACC_PATH . 'includes/integrations/class-vl-retailcrm.php';
+
+update_option(
+	'woocommerce_integration-retailcrm_settings',
+	array(
+		'api_url' => 'https://demo.simla.com',
+		'api_key' => 'simla-key',
+		'loyalty' => 'yes',
+	)
+);
+
+VL_Account_Settings::update(
+	array(
+		'crm_enabled'  => 1,
+		'crm_api_url'  => 'https://lovefirst.retailcrm.ru',
+		'crm_api_key'  => 'SECRET',
+		'crm_api_site' => 'lovefirst',
+	)
+);
+
+VL_Account_RetailCRM::flush_all();
+
+check( 'читаем своим клиентом', VL_Account_RetailCRM::api() instanceof VL_Account_CRM_Client );
+check( 'пишем транспортом Simla', VL_Account_RetailCRM::writer() instanceof WC_Retailcrm_Proxy );
+
+$loyalty_object = VL_Account_RetailCRM::loyalty();
+
+check( 'объекту лояльности достался Simla', $loyalty_object && $loyalty_object->api instanceof WC_Retailcrm_Proxy, get_class( $loyalty_object ? $loyalty_object->api : new stdClass() ) );
+
+$customers_object = VL_Account_RetailCRM::customers();
+
+check( 'выгрузке покупателя достался Simla', $customers_object && $customers_object->api instanceof WC_Retailcrm_Proxy );
+
+// Без плагина Simla писать некому, но чтение своим ключом остаётся.
+VL_Account_RetailCRM::flush_all();
+update_option( 'woocommerce_integration-retailcrm_settings', array() );
+
+check( 'без ключа Simla писать некому', false === VL_Account_RetailCRM::writer() );
+check( 'а читать всё равно можем', VL_Account_RetailCRM::api() instanceof VL_Account_CRM_Client );
+check( 'объект лояльности без Simla не создаётся', false === VL_Account_RetailCRM::loyalty() );
+
 echo "\n------------------------------------------------------------\n";
 echo "Пройдено: $pass, провалено: $fail\n";
 

@@ -238,7 +238,8 @@ class WC_Retailcrm_Base {}
 class WC_Retailcrm_Customer_Address {}
 class WC_Retailcrm_Customers {
 	public $isSubscribed = null;
-	public function __construct( $a, $b, $c ) {}
+	public $api          = null;
+	public function __construct( $a, $b, $c ) { $this->api = $a; }
 	public function updateCustomer( $id ) { $GLOBALS['log'][] = array( 'updateCustomer', $id ); }
 	public function registerCustomer( $id ) { $GLOBALS['log'][] = array( 'registerCustomer', $id ); }
 }
@@ -267,7 +268,8 @@ class WC_Retailcrm_Loyalty {
 	/** Управление из тестов: успех регистрации и ответ активации. */
 	public static $register_ok = true;
 	public static $activate    = null;
-	public function __construct( $api, $settings ) {}
+	public $api                = null;
+	public function __construct( $api, $settings ) { $this->api = $api; }
 	public function getLoyaltyHistory( $id ) { return self::$history; }
 	public function getBonusDetails( $id, $status ) { return self::$bonuses[ $status ] ?? array(); }
 	public function registerCustomer( $userId, $phone, $site ) { $GLOBALS['log'][] = array( 'lp_register', $phone ); return self::$register_ok; }
