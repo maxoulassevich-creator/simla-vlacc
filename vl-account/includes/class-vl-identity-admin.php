@@ -719,6 +719,8 @@ class VL_Account_Identity_Admin {
 					(int) $anchor['id']
 				);
 			} else {
+				$owner_gone = ! get_user_by( 'id', $anchor_external );
+
 				$spend = sprintf(
 					/* translators: 1: карточка CRM, 2: чужой аккаунт, 3: аккаунт покупателя. */
 					__( 'НЕТ: карточка %1$d привязана к аккаунту %2$d, а покупатель входит в %3$s. Списание Simla делает по externalId — пока они разные, баллы видны, но не тратятся.', 'vl-account' ),
@@ -726,6 +728,14 @@ class VL_Account_Identity_Admin {
 					$anchor_external,
 					$anchor_user ? '#' . $anchor_user : __( 'новый аккаунт', 'vl-account' )
 				);
+
+				$spend .= ' ' . ( $owner_gone
+					? sprintf(
+						/* translators: %d — ID удалённого аккаунта. */
+						__( 'Аккаунта %d на сайте уже нет — связь осиротела. Если у покупателя нет своей карточки, плагин заберёт эту при следующем входе; если своя карточка есть, объедините обе в CRM.', 'vl-account' ),
+						$anchor_external
+					)
+					: __( 'Объедините обе карточки покупателя в CRM — она перенесёт баллы и externalId на одну.', 'vl-account' ) );
 			}
 
 			$report[ __( 'Можно ли потратить баллы', 'vl-account' ) ] = $spend;

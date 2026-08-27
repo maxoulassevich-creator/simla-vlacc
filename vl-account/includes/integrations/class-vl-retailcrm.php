@@ -975,6 +975,27 @@ class VL_Account_RetailCRM {
 			return self::empty_account( 'none' );
 		}
 
+		// Баллы лежат на одной карточке, а аккаунт привязан к другой. Показать
+		// баланс мы можем (счёт нашли по телефону), а списать — нет: Simla
+		// ищет покупателя по externalId. Чинится это только объединением
+		// карточек в самой CRM, поэтому случай уходит в отчёт.
+		$raw_card = class_exists( 'VL_Account_RetailCRM_Directory' )
+			? VL_Account_RetailCRM_Directory::customer_id_from_account( $raw )
+			: 0;
+
+		if ( $crm_id && $raw_card && $raw_card !== $crm_id && class_exists( 'VL_Account_Identity' ) ) {
+			VL_Account_Identity::log(
+				'conflict',
+				array(
+					'phone'   => VL_Account_User::get_phone( $user_id ),
+					'user_id' => $user_id,
+					'source'  => 'loyalty',
+					'note'    => 'баллы на карточке ' . $raw_card . ', аккаунт привязан к карточке ' . $crm_id
+						. ' — списание не сработает, объедините карточки в CRM',
+				)
+			);
+		}
+
 		$active  = ! empty( $raw['active'] );
 		$account = self::empty_account( $active ? 'active' : 'inactive' );
 
