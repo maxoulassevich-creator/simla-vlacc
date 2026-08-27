@@ -565,6 +565,27 @@ class VL_Account_Identity {
 		$reason = VL_Account_RetailCRM_Directory::conflict_reason( $row );
 
 		if ( '' !== $reason ) {
+			// Есть одна опора, которая от мусора на телефоне не зависит: счёт
+			// программы лояльности заводится по самому номеру. Карточка, на
+			// которой он висит, и есть карточка владельца номера.
+			$anchor = self::anchor_row( $phone );
+
+			if ( $anchor ) {
+				self::log(
+					'match',
+					array(
+						'phone'   => $phone,
+						'user_id' => (int) $anchor['user_id'],
+						'source'  => 'loyalty',
+						'note'    => 'на номере разные карточки (' . $reason . '), выбрана карточка счёта программы лояльности',
+					)
+				);
+
+				self::$crm_cache[ $phone ] = $anchor;
+
+				return $anchor;
+			}
+
 			self::log(
 				'conflict',
 				array(
@@ -596,6 +617,45 @@ class VL_Account_Identity {
 		}
 
 		self::$crm_cache[ $phone ] = $row;
+
+		return $row;
+	}
+
+	/**
+	 * Строка по карточке, на которой висит счёт программы лояльности.
+	 *
+	 * Счёт программы привязан к самому номеру, поэтому такая карточка —
+	 * единственная опора, когда на телефоне в CRM намешаны разные люди.
+	 * Данные берём только из неё: чужие карточки в эту строку не попадают.
+	 *
+	 * @param string $phone Нормализованный номер.
+	 * @return array|false
+	 */
+	protected static function anchor_row( $phone ) {
+		$api = VL_Account_RetailCRM::api();
+
+		if ( ! $api ) {
+			return false;
+		}
+
+		$card = VL_Account_RetailCRM_Directory::card_by_loyalty( $api, $phone );
+
+		if ( ! $card ) {
+			return false;
+		}
+
+		$row = VL_Account_RetailCRM_Directory::row_from_customer( $card, $phone );
+
+		$user_id = self::user_for_crm_row( $row );
+
+		if ( ! $user_id || ! self::is_adoptable( $user_id ) ) {
+			return false;
+		}
+
+		$row['user_id']    = $user_id;
+		$row['candidates'] = array( $user_id );
+		$row['anchor']     = true;
+		$row['trusted']    = true;
 
 		return $row;
 	}
@@ -934,8 +994,29 @@ class VL_Account_Identity {
 			return $filled;
 		}
 
-		// Почта.
-		$email = isset( $crm['email'] ) ? sanitize_email( $crm['email'] ) : '';
+		// Почта. Берём её только из карточки, про которую точно известно, что
+		// она этого человека: якорь по счёту программы лояльности, карточка
+		// уже привязанная к этому аккаунту, либо единственная карточка номера.
+		$email   = isset( $crm['email'] ) ? sanitize_email( $crm['email'] ) : '';
+		$trusted = ! empty( $crm['trusted'] )
+			|| ( ! empty( $crm['external_id'] ) && (int) $crm['external_id'] === (int) $user_id )
+			|| ( isset( $crm['crm_ids'] ) && 1 === count( (array) $crm['crm_ids'] ) )
+			|| ! isset( $crm['crm_ids'] );
+
+		if ( $email && ! $trusted ) {
+			self::log(
+				'skip',
+				array(
+					'phone'   => $phone,
+					'email'   => $email,
+					'user_id' => $user_id,
+					'source'  => 'crm',
+					'note'    => 'почта из непроверенной карточки не записана',
+				)
+			);
+
+			$email = '';
+		}
 
 		if ( $email && is_email( $email ) && ! VL_Account_User::has_real_email( $user ) ) {
 			$owner = get_user_by( 'email', $email );
@@ -952,8 +1033,11 @@ class VL_Account_Identity {
 
 				if ( VL_Account_Settings::get( 'identity_trust_crm_email', 1 ) ) {
 					// Гасим просьбу подтвердить адрес — подтверждать нечего.
-					delete_user_meta( $user_id, VL_Account_Email_Confirm::META_EMAIL );
-					delete_user_meta( $user_id, VL_Account_Email_Confirm::META_HASH );
+					if ( class_exists( 'VL_Account_Email_Confirm' ) ) {
+						delete_user_meta( $user_id, VL_Account_Email_Confirm::META_EMAIL );
+						delete_user_meta( $user_id, VL_Account_Email_Confirm::META_HASH );
+					}
+
 					update_user_meta( $user_id, 'vlacc_email_confirmed', current_time( 'mysql' ) );
 				}
 

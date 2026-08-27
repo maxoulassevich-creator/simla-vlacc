@@ -652,33 +652,65 @@ class VL_Account_RetailCRM {
 			return 0;
 		}
 
-		// Сначала спрашиваем CRM (снимок мог устареть), потом выбираем из
-		// карточек этого телефона ту, что относится к нашему аккаунту.
-		$found = VL_Account_RetailCRM_Directory::find_by_phone( $phone );
+		// Карточка со счётом программы лояльности важнее всех: на ней лежат
+		// баллы, и списание на оформлении заказа Simla делает именно по её
+		// externalId. Если он указывает не на тот аккаунт, покупатель видит
+		// баллы, но потратить их не может.
+		$card = VL_Account_RetailCRM_Directory::card_by_loyalty( self::api(), $phone );
+		$row  = false;
 
-		// На номере карточки разных людей — привязывать нечего и опасно.
-		if ( $found && '' !== VL_Account_RetailCRM_Directory::conflict_reason( $found ) ) {
-			return 0;
+		if ( is_array( $card ) && ! empty( $card['id'] ) ) {
+			$row = VL_Account_RetailCRM_Directory::row_from_customer( $card, $phone );
 		}
 
-		$row = VL_Account_RetailCRM_Directory::row_for_user( $phone, $user_id );
-
 		if ( ! $row ) {
-			$row = VL_Account_RetailCRM_Directory::find_by_phone( $phone );
+			$found = VL_Account_RetailCRM_Directory::find_by_phone( $phone );
+
+			// На номере карточки разных людей — привязывать нечего и опасно.
+			if ( $found && '' !== VL_Account_RetailCRM_Directory::conflict_reason( $found ) ) {
+				return 0;
+			}
+
+			$row = VL_Account_RetailCRM_Directory::row_for_user( $phone, $user_id );
+
+			if ( ! $row ) {
+				$row = $found;
+			}
 		}
 
 		if ( ! $row || empty( $row['crm_id'] ) ) {
 			return 0;
 		}
 
-		// Карточка уже привязана к другому аккаунту сайта — не перехватываем.
-		if ( ! empty( $row['external_id'] ) && (int) $row['external_id'] !== (int) $user_id ) {
-			return 0;
+		$external = ! empty( $row['external_id'] ) ? (int) $row['external_id'] : 0;
+
+		// Карточка привязана к другому аккаунту сайта. Если тот аккаунт ещё
+		// существует — не перехватываем: это чужая связь. Если его удалили
+		// (или он был объединён с нашим), связь осиротела — забираем себе,
+		// иначе баллы этой карточки останутся недоступными для списания.
+		if ( $external && $external !== (int) $user_id ) {
+			$owner  = get_user_by( 'id', $external );
+			$merged = ( $owner && class_exists( 'VL_Account_Identity' ) )
+				? (int) get_user_meta( $external, VL_Account_Identity::META_MERGED, true )
+				: 0;
+
+			if ( $owner && $merged !== (int) $user_id ) {
+				self::log(
+					'Карточка CRM привязана к другому аккаунту — списание баллов работать не будет',
+					array(
+						'user_id'    => $user_id,
+						'crm_id'     => (int) $row['crm_id'],
+						'externalId' => $external,
+					)
+				);
+
+				return 0;
+			}
 		}
 
 		$crm_id = (int) $row['crm_id'];
 
-		if ( empty( $row['external_id'] ) ) {
+		if ( $external !== (int) $user_id ) {
 			self::assign_external_id( $crm_id, $user_id );
 		}
 

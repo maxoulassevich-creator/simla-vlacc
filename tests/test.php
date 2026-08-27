@@ -236,6 +236,25 @@ class Fake_Directory {
 		return $best;
 	}
 
+	/** Карточка счёта программы лояльности: задаётся тестом. */
+	public static $anchor = false;
+	public static function card_by_loyalty( $api, $phone ) { return self::$anchor; }
+	public static function row_from_customer( $customer, $phone ) {
+		return array(
+			'crm_id'      => (int) ( $customer['id'] ?? 0 ),
+			'external_id' => (int) ( $customer['externalId'] ?? 0 ),
+			'phone'       => $phone,
+			'email'       => (string) ( $customer['email'] ?? '' ),
+			'first_name'  => (string) ( $customer['firstName'] ?? '' ),
+			'last_name'   => '',
+			'city'        => '',
+			'subscribed'  => 0,
+			'user_id'     => 0,
+			'status'      => 'live',
+			'note'        => 'loyalty',
+		);
+	}
+
 	public static function crm_ids_by_phone( $phone ) {
 		$ids = array();
 
@@ -335,9 +354,10 @@ foreach ( $GLOBALS['log'] as $entry ) {
 
 check( 'связь записана в снимок', $linked );
 
-// Карточка уже привязана к другому аккаунту — не перехватываем.
+// Карточка уже привязана к другому, живому аккаунту — не перехватываем.
 VL_Account_RetailCRM::flush_all();
-Fake_Directory::$row = array(
+$GLOBALS['users'][777] = new WP_User( array( 'ID' => 777, 'user_email' => 'other@example.com' ) );
+Fake_Directory::$row   = array(
 	'crm_id'      => 901,
 	'external_id' => 777,
 	'phone'       => '79261234567',
@@ -346,6 +366,13 @@ Fake_Directory::$row = array(
 );
 
 check( 'чужую карточку не забираем', 0 === VL_Account_RetailCRM::crm_customer_id( 3 ) );
+
+// Аккаунт, на который указывала карточка, удалён — связь осиротела.
+// Такую карточку забираем, иначе её баллы нельзя будет потратить.
+unset( $GLOBALS['users'][777] );
+VL_Account_RetailCRM::flush_all();
+
+check( 'осиротевшую карточку забираем', 901 === VL_Account_RetailCRM::crm_customer_id( 3 ) );
 
 // Две карточки на один телефон: берём свободную, чужую не трогаем.
 VL_Account_RetailCRM::flush_all();

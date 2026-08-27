@@ -402,6 +402,24 @@ class Fake_Directory {
 	public static function match_row( $row ) { ++self::$matched; return 'matched'; }
 	public static function rows_by_phone( $phone ) { return self::$row ? array( self::$row ) : array(); }
 	public static function combine( $rows ) { $rows = array_values( (array) $rows ); return $rows ? $rows[0] : false; }
+	/** Карточка счёта программы лояльности: задаётся тестом. */
+	public static $anchor = false;
+	public static function card_by_loyalty( $api, $phone ) { return self::$anchor; }
+	public static function row_from_customer( $customer, $phone ) {
+		return array(
+			'crm_id'      => (int) ( $customer['id'] ?? 0 ),
+			'external_id' => (int) ( $customer['externalId'] ?? 0 ),
+			'phone'       => $phone,
+			'email'       => (string) ( $customer['email'] ?? '' ),
+			'first_name'  => (string) ( $customer['firstName'] ?? '' ),
+			'last_name'   => (string) ( $customer['lastName'] ?? '' ),
+			'city'        => '',
+			'subscribed'  => 0,
+			'user_id'     => 0,
+			'status'      => 'live',
+			'note'        => 'loyalty',
+		);
+	}
 	/** Те же правила, что в настоящем справочнике. */
 	public static function conflict_reason( $row ) {
 		if ( count( (array) ( $row['emails'] ?? array() ) ) > 1 ) { return 'разные почты'; }
@@ -596,6 +614,100 @@ Fake_Directory::$row = array(
 );
 
 check( 'один человек — аккаунт находится', 65 === (int) VL_Account_Identity::find_in_crm( '79261234567' )['user_id'] );
+
+echo "\n== 8.2. Счёт программы лояльности разводит мусор на номере ==\n";
+
+// На номере в CRM карточки разных людей — обычный разбор отказывается
+// выбирать. Но счёт программы лояльности заводится по самому номеру,
+// и карточка, на которой он висит, — карточка владельца номера.
+reset_world();
+make_user( 70, 'owner@example.com' );
+
+Fake_Directory::$row = array(
+	'id'           => 20,
+	'crm_id'       => 900,
+	'external_id'  => 0,
+	'phone'        => '79261234567',
+	'email'        => '',
+	'user_id'      => 0,
+	'emails'       => array( 'one@example.com', 'two@example.com' ),
+	'external_ids' => array( 111, 222 ),
+	'status'       => 'conflict',
+);
+
+Fake_Directory::$anchor = array(
+	'id'         => 905,
+	'externalId' => 70,
+	'email'      => 'owner@example.com',
+	'firstName'  => 'Пётр',
+);
+
+$row = VL_Account_Identity::find_in_crm( '79261234567' );
+
+check( 'по счёту программы аккаунт нашёлся', $row && 70 === (int) $row['user_id'], print_r( $row, true ) );
+check( 'данные взяты из карточки счёта', $row && 'owner@example.com' === $row['email'] );
+check( 'строка помечена как проверенная', $row && ! empty( $row['trusted'] ) );
+
+// Якоря нет — остаётся отказ, как и было.
+reset_world();
+make_user( 71, 'someone@example.com' );
+Fake_Directory::$anchor = false;
+Fake_Directory::$row    = array(
+	'id'           => 21,
+	'crm_id'       => 901,
+	'external_id'  => 0,
+	'phone'        => '79261234567',
+	'email'        => 'stranger@example.com',
+	'user_id'      => 0,
+	'emails'       => array( 'stranger@example.com', 'other@example.com' ),
+	'external_ids' => array( 111, 222 ),
+	'status'       => 'conflict',
+);
+
+check( 'без счёта программы по мусорному номеру отказываем', false === VL_Account_Identity::find_in_crm( '79261234567' ) );
+
+echo "\n== 8.3. Чужая почта из непроверенной карточки не записывается ==\n";
+reset_world();
+make_user( 72, '79261234567@phone.example.test' );
+
+Fake_Directory::$anchor = false;
+Fake_Directory::$row    = array(
+	'id'          => 22,
+	'crm_id'      => 902,
+	'external_id' => 0,
+	'phone'       => '79261234567',
+	'email'       => 'stranger@example.com',
+	'first_name'  => 'Кто-то',
+	'user_id'     => 72,
+	'crm_ids'     => array( 902, 903 ),
+	'user_ids'    => array( 72 ),
+	'status'      => 'matched',
+);
+
+$filled = VL_Account_Identity::adopt_from_crm( 72, '79261234567' );
+
+check( 'чужая почта не записана', '79261234567@phone.example.test' === $GLOBALS['users'][72]->user_email, $GLOBALS['users'][72]->user_email );
+check( 'почты нет в списке заполненного', ! in_array( 'email', $filled, true ), print_r( $filled, true ) );
+
+// Единственная карточка номера — сомнений нет, почту берём.
+reset_world();
+make_user( 73, '79261234567@phone.example.test' );
+
+Fake_Directory::$row = array(
+	'id'          => 23,
+	'crm_id'      => 904,
+	'external_id' => 0,
+	'phone'       => '79261234567',
+	'email'       => 'mine@example.com',
+	'user_id'     => 73,
+	'crm_ids'     => array( 904 ),
+	'user_ids'    => array( 73 ),
+	'status'      => 'matched',
+);
+
+VL_Account_Identity::adopt_from_crm( 73, '79261234567' );
+
+check( 'почта единственной карточки записана', 'mine@example.com' === $GLOBALS['users'][73]->user_email, $GLOBALS['users'][73]->user_email );
 
 VL_Account_Settings::update( array( 'identity_crm' => 0, 'identity_orders' => 1 ) );
 

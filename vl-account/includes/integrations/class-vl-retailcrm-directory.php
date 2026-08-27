@@ -975,7 +975,7 @@ class VL_Account_RetailCRM_Directory {
 	 * @param string $phone    Нормализованный номер.
 	 * @return array
 	 */
-	protected static function row_from_customer( $customer, $phone ) {
+	public static function row_from_customer( $customer, $phone ) {
 		return array(
 			'crm_id'      => isset( $customer['id'] ) ? (int) $customer['id'] : 0,
 			'external_id' => isset( $customer['externalId'] ) ? (int) $customer['externalId'] : 0,
@@ -990,6 +990,55 @@ class VL_Account_RetailCRM_Directory {
 			'status'      => 'live',
 			'note'        => 'api',
 		);
+	}
+
+	/**
+	 * Карточка, на которой висит счёт программы лояльности с этим номером.
+	 *
+	 * Это самая надёжная опора на телефон, какая есть в CRM: счёт программы
+	 * заводится именно по номеру, и номер у него один. Когда на телефоне
+	 * намешаны карточки разных людей, счёт показывает ту единственную, что
+	 * относится к владельцу номера.
+	 *
+	 * Карточку с другим телефоном якорем не считаем: бывает, что счёт с нашим
+	 * номером по ошибке заведён на постороннего (в том числе нашей же прошлой
+	 * ошибкой) — у такой карточки в поле телефона свой, чужой номер.
+	 *
+	 * @param object $api   Клиент API.
+	 * @param string $phone Нормализованный номер.
+	 * @return array|false Карточка CRM.
+	 */
+	public static function card_by_loyalty( $api, $phone ) {
+		if ( ! $api ) {
+			return false;
+		}
+
+		$account = self::loyalty_account_by_phone( $api, $phone );
+
+		if ( ! $account ) {
+			return false;
+		}
+
+		$crm_id = self::customer_id_from_account( $account );
+
+		if ( ! $crm_id ) {
+			return false;
+		}
+
+		$customer = self::fetch_customer( $api, $crm_id );
+
+		if ( ! is_array( $customer ) ) {
+			return false;
+		}
+
+		$phones = isset( $customer['phones'] ) ? (array) $customer['phones'] : array();
+
+		// В карточке телефон есть и он чужой — это не наш человек.
+		if ( $phones && ! self::has_phone( $customer, $phone ) ) {
+			return false;
+		}
+
+		return $customer;
 	}
 
 	/**

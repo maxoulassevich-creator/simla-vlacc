@@ -701,6 +701,36 @@ class VL_Account_Identity_Admin {
 			? implode( '; ', $lines )
 			: __( 'по номеру не найдено', 'vl-account' );
 
+		// 6.1. Списание баллов на оформлении идёт по externalId карточки, на
+		// которой висит счёт программы: если он указывает не на тот аккаунт,
+		// баллы видны, но потратить их нельзя.
+		$anchor = VL_Account_RetailCRM_Directory::card_by_loyalty( $api, $normalized );
+
+		if ( $anchor ) {
+			$anchor_external = ! empty( $anchor['externalId'] ) ? (int) $anchor['externalId'] : 0;
+			$anchor_user     = $user ? (int) $user->ID : 0;
+
+			if ( $anchor_external && $anchor_user && $anchor_external === $anchor_user ) {
+				$spend = __( 'да — карточка с баллами привязана к этому аккаунту', 'vl-account' );
+			} elseif ( ! $anchor_external ) {
+				$spend = sprintf(
+					/* translators: %d — карточка CRM. */
+					__( 'НЕТ: у карточки %d нет externalId. Он проставится при следующем входе покупателя.', 'vl-account' ),
+					(int) $anchor['id']
+				);
+			} else {
+				$spend = sprintf(
+					/* translators: 1: карточка CRM, 2: чужой аккаунт, 3: аккаунт покупателя. */
+					__( 'НЕТ: карточка %1$d привязана к аккаунту %2$d, а покупатель входит в %3$s. Списание Simla делает по externalId — пока они разные, баллы видны, но не тратятся.', 'vl-account' ),
+					(int) $anchor['id'],
+					$anchor_external,
+					$anchor_user ? '#' . $anchor_user : __( 'новый аккаунт', 'vl-account' )
+				);
+			}
+
+			$report[ __( 'Можно ли потратить баллы', 'vl-account' ) ] = $spend;
+		}
+
 		// 7. Что увидит кабинет. Аккаунт мог найтись только сейчас — после того,
 		// как карточки CRM попали в снимок; строку отчёта тогда переписываем.
 		if ( ! $user ) {
