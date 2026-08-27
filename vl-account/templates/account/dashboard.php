@@ -24,7 +24,8 @@ $vl_lp_discount = 0;
 // ожидания показываем отдельной строкой — иначе кажется, что баллы пропали.
 $vl_lp_waiting = 0;
 
-if ( class_exists( 'VL_Account_RetailCRM_Loyalty' ) && VL_Account_RetailCRM::loyalty_active() ) {
+if ( class_exists( 'VL_Account_RetailCRM_Loyalty' ) && VL_Account_RetailCRM::loyalty_active()
+	&& 'crm' === VL_Account_RetailCRM_Loyalty::source( $user_id ) ) {
 	$vl_lp = VL_Account_RetailCRM::account( $user_id );
 
 	if ( 'active' === $vl_lp['status'] && VL_Account_RetailCRM_Loyalty::is_discount_level( $vl_lp ) ) {

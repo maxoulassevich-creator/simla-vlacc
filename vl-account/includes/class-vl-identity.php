@@ -425,22 +425,23 @@ class VL_Account_Identity {
 
 			$customer_id = (int) $order->get_customer_id();
 
+			// Заказ, который привязали к аккаунту только по совпадению почты,
+			// владения не доказывает: почту в оформлении вводят руками.
+			if ( $customer_id && class_exists( 'VL_Account_Orders' ) && VL_Account_Orders::matched_by_email( $order ) ) {
+				continue;
+			}
+
 			if ( $customer_id ) {
 				$users[ $customer_id ] = $customer_id;
 
 				continue;
 			}
 
-			// Гостевой заказ: аккаунт ищем по почте из заказа.
-			$email = $order->get_billing_email();
-
-			if ( $email ) {
-				$user = get_user_by( 'email', $email );
-
-				if ( $user ) {
-					$users[ $user->ID ] = (int) $user->ID;
-				}
-			}
+			// Гостевой заказ по почте к аккаунту НЕ ведёт. Почту в оформлении
+			// можно указать любую: достаточно оформить гостевой заказ на чужой
+			// адрес со своим телефоном, чтобы потом войти по SMS в чужой
+			// кабинет. Владение аккаунтом подтверждает только заказ, который
+			// оформлен из самого кабинета, — у такого есть customer_id.
 		}
 
 		$users = array_values( array_filter( $users, array( __CLASS__, 'is_adoptable' ) ) );
@@ -881,7 +882,23 @@ class VL_Account_Identity {
 			return;
 		}
 
-		if ( (string) get_user_meta( $user_id, VL_Account_User::META_PHONE, true ) !== $phone ) {
+		$known = (string) get_user_meta( $user_id, VL_Account_User::META_PHONE, true );
+
+		if ( $known !== $phone ) {
+			// У аккаунта был другой номер: это либо смена номера владельцем,
+			// либо неверное сопоставление. Молча такое менять нельзя.
+			if ( '' !== $known ) {
+				self::log(
+					'conflict',
+					array(
+						'phone'   => $phone,
+						'user_id' => $user_id,
+						'source'  => 'login',
+						'note'    => 'в аккаунте был другой номер: ' . vlacc_mask_phone( $known ),
+					)
+				);
+			}
+
 			update_user_meta( $user_id, VL_Account_User::META_PHONE, $phone );
 		}
 

@@ -26,6 +26,7 @@ class WC_Order {
 	public $phone;
 	public $email;
 	public $saved = 0;
+	public $meta  = array();
 	public function __construct( $id, $customer_id, $phone, $email = '' ) {
 		$this->id          = $id;
 		$this->customer_id = $customer_id;
@@ -37,6 +38,10 @@ class WC_Order {
 	public function set_customer_id( $id ) { $this->customer_id = (int) $id; }
 	public function get_billing_phone() { return $this->phone; }
 	public function get_billing_email() { return $this->email; }
+	public function get_billing_first_name() { return ''; }
+	public function get_billing_last_name() { return ''; }
+	public function update_meta_data( $key, $value ) { $this->meta[ $key ] = $value; }
+	public function get_meta( $key, $single = true ) { return $this->meta[ $key ] ?? ''; }
 	public function save() { ++$this->saved; return $this->id; }
 }
 
@@ -165,11 +170,62 @@ $GLOBALS['orders'][] = new WC_Order( 100, 20, '+7 (926) 123-45-67', 'old@example
 
 check( 'аккаунт найден по заказу', 20 === VL_Account_Identity::find_by_orders( '79261234567' ) );
 
+// Гостевой заказ к аккаунту не ведёт: почту в оформлении вписывают любую,
+// иначе достаточно заказать на чужой адрес со своим телефоном — и войти
+// по SMS в чужой кабинет.
 reset_world();
 make_user( 21, 'guest@example.com' );
 $GLOBALS['orders'][] = new WC_Order( 101, 0, '+79261234567', 'guest@example.com' );
 
-check( 'гостевой заказ ведёт к аккаунту по почте', 21 === VL_Account_Identity::find_by_orders( '79261234567' ) );
+check( 'гостевой заказ по почте аккаунт не выдаёт', 0 === VL_Account_Identity::find_by_orders( '79261234567' ) );
+
+// Тот же заказ, но оформленный из кабинета, — доказательство владения.
+$GLOBALS['orders'][0]->customer_id = 21;
+
+check( 'заказ из кабинета аккаунт выдаёт', 21 === VL_Account_Identity::find_by_orders( '79261234567' ) );
+
+echo "\n== 3.1. Гостевой заказ не открывает чужой кабинет ==\n";
+reset_world();
+
+// Атака: заказ оформлен гостем на чужую почту, но со своим телефоном.
+// Раньше заказ привязывался к чужому аккаунту, туда же записывался телефон
+// атакующего — и вход по SMS открывал чужой кабинет.
+VL_Account_Settings::update( array( 'auto_create_account' => 0 ) );
+
+make_user( 30, 'victim@example.com' );
+
+$vl_orders = VL_Account_Orders::instance();
+$attack    = new WC_Order( 200, 0, '+79990001122', 'victim@example.com' );
+
+$GLOBALS['orders'][] = $attack;
+$vl_orders->after_checkout( 200, array(), $attack );
+
+check( 'телефон атакующего в чужой профиль не записан', '' === (string) get_user_meta( 30, VL_Account_User::META_PHONE, true ), (string) get_user_meta( 30, VL_Account_User::META_PHONE, true ) );
+check( 'заказ помечен как привязанный по почте', VL_Account_Orders::matched_by_email( $attack ) );
+check( 'и по такому заказу вход не находит аккаунт', 0 === VL_Account_Identity::find_by_orders( '79990001122' ), (string) VL_Account_Identity::find_by_orders( '79990001122' ) );
+
+// Заказ на почту аккаунта с правами не привязывается вовсе.
+reset_world();
+make_user( 31, 'shop@example.com', array( 'manage_woocommerce' ) );
+
+$to_admin            = new WC_Order( 201, 0, '+79990002233', 'shop@example.com' );
+$GLOBALS['orders'][] = $to_admin;
+$vl_orders->after_checkout( 201, array(), $to_admin );
+
+check( 'заказ не уехал в аккаунт с правами', 0 === (int) $to_admin->get_customer_id() );
+check( 'телефон менеджеру не записан', '' === (string) get_user_meta( 31, VL_Account_User::META_PHONE, true ) );
+
+// Свой заказ из кабинета: телефон записать можно — человек был авторизован.
+reset_world();
+make_user( 32, 'buyer@example.com' );
+
+$own                 = new WC_Order( 202, 32, '+79261234567', 'buyer@example.com' );
+$GLOBALS['orders'][] = $own;
+$vl_orders->after_checkout( 202, array(), $own );
+
+check( 'свой телефон из своего заказа записан', '79261234567' === (string) get_user_meta( 32, VL_Account_User::META_PHONE, true ) );
+
+VL_Account_Settings::update( array( 'auto_create_account' => 1 ) );
 
 // Номер записан «как попало» — обычный поиск по формату его не находит,
 // должен сработать запасной поиск по цифрам.

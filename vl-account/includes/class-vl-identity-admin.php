@@ -171,21 +171,64 @@ class VL_Account_Identity_Admin {
 	}
 
 	/**
+	 * Размер пачки для разовых операций по всей базе.
+	 */
+	const BATCH = 500;
+
+	/**
+	 * Опция со смещением для разовых операций пачками.
+	 */
+	const OFFSET_OPTION = 'vlacc_identity_offset';
+
+	/**
+	 * Сколько строк уже обработано в этой операции.
+	 *
+	 * @param string $key Операция.
+	 * @return int
+	 */
+	protected static function offset( $key ) {
+		$all = get_option( self::OFFSET_OPTION, array() );
+
+		return is_array( $all ) && isset( $all[ $key ] ) ? (int) $all[ $key ] : 0;
+	}
+
+	/**
+	 * Запомнить смещение (0 — операция закончена).
+	 *
+	 * @param string $key   Операция.
+	 * @param int    $value Смещение.
+	 */
+	protected static function set_offset( $key, $value ) {
+		$all = get_option( self::OFFSET_OPTION, array() );
+		$all = is_array( $all ) ? $all : array();
+
+		$all[ $key ] = (int) $value;
+
+		update_option( self::OFFSET_OPTION, $all, false );
+	}
+
+	/**
 	 * Дописать телефоны из справочника в профили аккаунтов.
 	 *
-	 * После этого штатный поиск по номеру находит старые аккаунты сам,
-	 * без обращения к CRM.
+	 * Идём пачками по 500 строк: на базе в тысячи аккаунтов один заход
+	 * упирался бы в максимальное время выполнения PHP и обрывался посреди
+	 * работы. Смещение запоминается, следующее нажатие продолжает с него.
 	 *
 	 * @return int Сколько аккаунтов получили номер.
 	 */
 	public static function backfill_phones() {
+		$offset  = self::offset( 'backfill' );
 		$rows    = VL_Account_RetailCRM_Directory::query(
 			array(
 				'status' => 'matched',
-				'limit'  => 5000,
+				'limit'  => self::BATCH,
+				'offset' => $offset,
 			)
 		);
 		$updated = 0;
+
+		// Пачка кончилась — в следующий раз начинаем сначала.
+		self::set_offset( 'backfill', count( $rows ) < self::BATCH ? 0 : $offset + self::BATCH );
 
 		// Номера, на которых в CRM намешаны разные люди, не разносим по профилям.
 		$mixed = array_flip( VL_Account_RetailCRM_Directory::mixed_phones() );
@@ -472,13 +515,17 @@ class VL_Account_Identity_Admin {
 	 * @return int Сколько аккаунтов вычищено.
 	 */
 	public static function undo_backfill() {
-		$rows  = VL_Account_Identity::log_query(
+		$offset = self::offset( 'undo' );
+		$rows   = VL_Account_Identity::log_query(
 			array(
-				'event' => 'backfill',
-				'limit' => 5000,
+				'event'  => 'backfill',
+				'limit'  => self::BATCH,
+				'offset' => $offset,
 			)
 		);
-		$count = 0;
+		$count  = 0;
+
+		self::set_offset( 'undo', count( $rows ) < self::BATCH ? 0 : $offset + self::BATCH );
 
 		foreach ( $rows as $row ) {
 			if ( self::unlink_phone( (int) $row['user_id'], (string) $row['phone'] ) ) {
@@ -515,8 +562,11 @@ class VL_Account_Identity_Admin {
 			? sprintf( '#%d — %s (%s)', $user->ID, $user->user_login, $user->user_email )
 			: __( 'не найден', 'vl-account' );
 
-		// 2. Заказы сайта с этим номером.
-		$orders = class_exists( 'VL_Account_Orders' ) ? VL_Account_Orders::find_orders_by_phone( $normalized ) : array();
+		// 2. Заказы сайта с этим номером. Без WooCommerce искать нечем:
+		// wc_get_orders() тогда не существует, и экран падал бы с фаталом.
+		$orders = ( class_exists( 'VL_Account_Orders' ) && vlacc_is_woo() )
+			? VL_Account_Orders::find_orders_by_phone( $normalized )
+			: array();
 
 		$report[ __( 'Заказы сайта с этим номером', 'vl-account' ) ] = $orders
 			? count( $orders )
@@ -851,7 +901,7 @@ class VL_Account_Identity_Admin {
 		if ( 0 === strpos( $code, 'backfill_' ) ) {
 			return sprintf(
 				/* translators: %d — сколько аккаунтов. */
-				__( 'Телефон дописан в профили: %d.', 'vl-account' ),
+				__( 'Телефон дописан в профили: %d. Операция идёт пачками по 500 записей — если в снимке их больше, нажмите кнопку ещё раз.', 'vl-account' ),
 				(int) substr( $code, 9 )
 			);
 		}
@@ -1065,13 +1115,28 @@ class VL_Account_Identity_Admin {
 				</form>
 			<?php endif; ?>
 
-			<h2><?php esc_html_e( 'Телефоны, записанные плагином', 'vl-account' ); ?></h2>
+			<h2 id="vlacc-audit"><?php esc_html_e( 'Телефоны, записанные плагином', 'vl-account' ); ?></h2>
 
 			<p class="description" style="max-width:900px">
 				<?php esc_html_e( 'Номер в профиль аккаунта попадает от плагина ровно в двух случаях: вход по найденному аккаунту и кнопка «Дописать телефоны в аккаунты». Оба случая записаны в журнал, поэтому список полный. Для каждой записи видно, чем номер подтверждается: заказом самого аккаунта или карточкой CRM с той же почтой. Сомнительные записи — сверху; отметьте и снимите номер, аккаунт при этом не пострадает.', 'vl-account' ); ?>
 			</p>
 
-			<?php $vl_audit = self::audit_phones(); ?>
+			<?php
+			// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+			$vl_show_audit = ! empty( $_GET['audit'] );
+			$vl_audit      = $vl_show_audit ? self::audit_phones() : array();
+			?>
+
+			<?php if ( ! $vl_show_audit ) : ?>
+				<p>
+					<a class="button" href="<?php echo esc_url( admin_url( 'admin.php?page=' . self::PAGE . '&audit=1#vlacc-audit' ) ); ?>">
+						<?php esc_html_e( 'Показать записанные телефоны', 'vl-account' ); ?>
+					</a>
+					<span class="description">
+						<?php esc_html_e( 'Проверка каждой записи спрашивает заказы и снимок CRM, поэтому список строится по кнопке, а не при каждом открытии экрана.', 'vl-account' ); ?>
+					</span>
+				</p>
+			<?php else : ?>
 
 			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="margin-bottom:24px">
 				<?php wp_nonce_field( 'vlacc_identity' ); ?>
@@ -1129,6 +1194,8 @@ class VL_Account_Identity_Admin {
 					<?php esc_html_e( 'Откатить «Дописать телефоны»', 'vl-account' ); ?>
 				</button>
 			</form>
+
+			<?php endif; ?>
 
 			<h2><?php esc_html_e( 'Журнал сопоставлений', 'vl-account' ); ?></h2>
 

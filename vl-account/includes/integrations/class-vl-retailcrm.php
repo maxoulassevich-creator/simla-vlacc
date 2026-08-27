@@ -592,9 +592,14 @@ class VL_Account_RetailCRM {
 			$amount     = isset( $account['amount'] ) ? (float) $account['amount'] : 0.0;
 			$orders_sum = isset( $account['ordersSum'] ) ? (float) $account['ordersSum'] : 0.0;
 
+			// Счёт считается «приветственным» только если сумма совпадает с
+			// начислением за регистрацию И покупок по нему не было: у живого
+			// покупателя баланс может случайно совпасть с круглой тысячей.
+			$welcome_only = $welcome > 0 && abs( $amount - $welcome ) < 0.01 && $orders_sum <= 0;
+
 			$weight = array(
 				( $amount > 0 || $orders_sum > 0 ) ? 1 : 0,
-				( $welcome > 0 && abs( $amount - $welcome ) < 0.01 ) ? 0 : 1,
+				$welcome_only ? 0 : 1,
 				empty( $account['active'] ) ? 0 : 1,
 				$orders_sum,
 				$amount,
@@ -994,7 +999,11 @@ class VL_Account_RetailCRM {
 			return false;
 		}
 
-		return count( VL_Account_RetailCRM_Directory::crm_ids_by_phone( $phone ) ) > 1;
+		// Ровно одна карточка в снимке — дублей нет, спрашивать нечего.
+		// Ноль означает не «дублей нет», а «мы не знаем»: снимок могли не
+		// делать, выключить или он устарел, а вторая карточка с настоящими
+		// баллами в CRM уже есть. В таком случае спрашиваем по телефону.
+		return 1 !== count( VL_Account_RetailCRM_Directory::crm_ids_by_phone( $phone ) );
 	}
 
 	/**

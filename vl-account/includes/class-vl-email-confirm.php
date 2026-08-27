@@ -412,7 +412,9 @@ class VL_Account_Email_Confirm {
 					return __( 'на адрес оформлены заказы другого покупателя', 'vl-account' );
 				}
 
-				if ( ! $customer_id && '' !== $phone && VL_Account_Phone::normalize( $order->get_billing_phone() ) !== $phone ) {
+				if ( ! $customer_id && VL_Account_Phone::normalize( $order->get_billing_phone() ) !== $phone ) {
+					// Телефона у аккаунта ещё нет — сравнивать не с чем, а
+					// гостевой заказ на этот адрес уже есть: не присваиваем.
 					return __( 'на адрес есть гостевые заказы с другим телефоном', 'vl-account' );
 				}
 			}
@@ -422,14 +424,16 @@ class VL_Account_Email_Confirm {
 		if ( class_exists( 'VL_Account_RetailCRM_Directory' ) ) {
 			foreach ( VL_Account_RetailCRM_Directory::rows_by_email( $email ) as $row ) {
 				$card_phone = isset( $row['phone'] ) ? (string) $row['phone'] : '';
+				$external   = isset( $row['external_id'] ) ? (int) $row['external_id'] : 0;
 
-				if ( '' !== $card_phone && '' !== $phone && $card_phone !== $phone ) {
-					return __( 'в CRM этот адрес у клиента с другим номером', 'vl-account' );
+				// Карточка этого же аккаунта или с этим же номером — своя.
+				if ( ( $external && $external === (int) $user_id ) || ( '' !== $card_phone && $card_phone === $phone ) ) {
+					continue;
 				}
 
-				if ( ! empty( $row['external_id'] ) && (int) $row['external_id'] !== (int) $user_id ) {
-					return __( 'в CRM этот адрес привязан к другому аккаунту сайта', 'vl-account' );
-				}
+				// Всё остальное — чужая история: за адресом стоят заказы и
+				// баллы другого человека, даже если телефона в карточке нет.
+				return __( 'в CRM этот адрес принадлежит другому клиенту', 'vl-account' );
 			}
 		}
 

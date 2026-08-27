@@ -1724,7 +1724,8 @@ class VL_Account_Admin {
 				continue;
 			}
 
-			$clean[ $key ] = sanitize_text_field( $value );
+			// Значение могло прийти массивом там, где ожидается строка.
+			$clean[ $key ] = sanitize_text_field( is_scalar( $value ) ? $value : '' );
 		}
 
 		if ( isset( $checkbox_map[ $tab ] ) ) {

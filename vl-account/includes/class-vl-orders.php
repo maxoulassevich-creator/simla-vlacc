@@ -133,20 +133,46 @@ class VL_Account_Orders {
 		$phone = VL_Account_Phone::normalize( $order->get_billing_phone() );
 
 		// 1. Пользователь уже есть — привязываем заказ.
-		$user = false;
+		$user      = false;
+		$by_email  = false;
 
 		if ( $email ) {
-			$user = get_user_by( 'email', $email );
+			$user     = get_user_by( 'email', $email );
+			$by_email = (bool) $user;
 		}
 
 		if ( ! $user && $phone && VL_Account_Settings::get( 'match_by_phone', 1 ) ) {
 			$user = VL_Account_User::get_by_phone( $phone );
 		}
 
+		// В аккаунт с правами гостевой заказ не привязываем: почту магазина
+		// знают все, и заказ с чужим телефоном не должен попасть менеджеру.
+		if ( $user && ! VL_Account_Identity::is_adoptable( $user->ID ) ) {
+			vlacc_log(
+				'Гостевой заказ не привязан: у аккаунта есть права',
+				array(
+					'order'   => $order->get_id(),
+					'user_id' => $user->ID,
+				)
+			);
+
+			return;
+		}
+
 		if ( $user ) {
 			$order->set_customer_id( $user->ID );
+
+			// Телефон из гостевого заказа в чужой профиль не пишем: почту в
+			// оформлении можно указать любую, а записанный номер открывает
+			// вход по SMS в этот аккаунт. Свой номер владелец получит,
+			// оформив заказ уже под своим кабинетом.
+			if ( $by_email ) {
+				self::mark_matched_by_email( $order );
+			} else {
+				$this->store_phone_from_order( $user->ID, $order );
+			}
+
 			$order->save();
-			$this->store_phone_from_order( $user->ID, $order );
 
 			vlacc_log(
 				'Заказ привязан к существующему аккаунту',
@@ -204,6 +230,41 @@ class VL_Account_Orders {
 				'user_id' => $user_id,
 			)
 		);
+	}
+
+	/**
+	 * Метка на заказе: он привязан к аккаунту по совпадению почты.
+	 */
+	const META_BY_EMAIL = '_vlacc_matched_by_email';
+
+	/**
+	 * Пометить заказ, привязанный по почте.
+	 *
+	 * Почту в оформлении вводят руками, проверить её никто не может. Такой
+	 * заказ показываем в кабинете, но владение аккаунтом он не доказывает:
+	 * иначе, оформив гостевой заказ на чужой адрес со своим телефоном, можно
+	 * было бы войти по SMS в чужой кабинет.
+	 *
+	 * @param WC_Order $order Заказ.
+	 */
+	public static function mark_matched_by_email( $order ) {
+		if ( $order instanceof WC_Order && is_callable( array( $order, 'update_meta_data' ) ) ) {
+			$order->update_meta_data( self::META_BY_EMAIL, 1 );
+		}
+	}
+
+	/**
+	 * Заказ привязан к аккаунту только по почте.
+	 *
+	 * @param WC_Order $order Заказ.
+	 * @return bool
+	 */
+	public static function matched_by_email( $order ) {
+		if ( ! $order instanceof WC_Order || ! is_callable( array( $order, 'get_meta' ) ) ) {
+			return false;
+		}
+
+		return (bool) $order->get_meta( self::META_BY_EMAIL );
 	}
 
 	/**
@@ -350,7 +411,8 @@ class VL_Account_Orders {
 			return 0;
 		}
 
-		$orders = array();
+		$orders     = array();
+		$only_email = array();
 
 		if ( VL_Account_User::has_real_email( $user ) ) {
 			$by_email = wc_get_orders(
@@ -368,6 +430,7 @@ class VL_Account_Orders {
 				foreach ( $by_email as $order ) {
 					if ( $order instanceof WC_Order && strtolower( $order->get_billing_email() ) === strtolower( $user->user_email ) ) {
 						$orders[] = $order;
+						$only_email[ $order->get_id() ] = true;
 					}
 				}
 			}
@@ -377,7 +440,14 @@ class VL_Account_Orders {
 
 		if ( $phone && VL_Account_Settings::get( 'match_by_phone', 1 ) ) {
 			$by_phone = self::find_orders_by_phone( $phone );
-			$orders   = array_merge( $orders, $by_phone );
+
+			foreach ( (array) $by_phone as $order ) {
+				if ( $order instanceof WC_Order ) {
+					// Телефон подтверждён кодом, значит заказ точно его.
+					unset( $only_email[ $order->get_id() ] );
+					$orders[] = $order;
+				}
+			}
 		}
 
 		$attached = 0;
@@ -388,6 +458,13 @@ class VL_Account_Orders {
 			}
 
 			$order->set_customer_id( $user_id );
+
+			// Заказ, найденный только по почте, помечаем: он попадёт в кабинет,
+			// но доказательством владения аккаунтом служить не будет.
+			if ( isset( $only_email[ $order->get_id() ] ) ) {
+				self::mark_matched_by_email( $order );
+			}
+
 			$order->save();
 			++$attached;
 		}
