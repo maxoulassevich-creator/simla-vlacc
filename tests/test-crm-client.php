@@ -89,6 +89,21 @@ $url = last_request()['url'];
 check( 'справочник статусов', false !== strpos( $url, '/reference/statuses' ), $url );
 check( 'к справочнику магазин не приклеивается', false === strpos( $url, 'site=' ), $url );
 
+$client->credentials();
+$url = last_request()['url'];
+
+check( 'права ключа — без версии API', false !== strpos( $url, '/api/credentials' ) && false === strpos( $url, '/api/v5/credentials' ), $url );
+check( 'к правам ключа магазин не приклеивается', false === strpos( $url, 'site=' ), $url );
+
+$client->customersList( array( 'name' => 'тест' ) );
+check( 'к списку клиентов магазин не приклеивается', false === strpos( last_request()['url'], 'site=' ), last_request()['url'] );
+
+$client->ordersList( array( 'customerId' => 1 ) );
+check( 'к списку заказов магазин не приклеивается', false === strpos( last_request()['url'], 'site=' ), last_request()['url'] );
+
+$client->getLoyaltyAccountList( array( 'phoneNumber' => '+79047767897' ) );
+check( 'к участиям магазин не приклеивается', false === strpos( last_request()['url'], 'site=' ), last_request()['url'] );
+
 echo "\n== 2. Разбор ответа ==\n";
 
 $GLOBALS['http_next'] = array( 'code' => 200, 'body' => '{"success":true,"customer":{"id":9638,"firstName":"Александр"}}' );

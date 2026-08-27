@@ -153,11 +153,11 @@ class VL_Account_CRM_Response implements ArrayAccess {
 class VL_Account_CRM_Client {
 
 	/**
-	 * Адрес API без версии.
+	 * Адрес магазина без /api.
 	 *
 	 * @var string
 	 */
-	protected $url = '';
+	protected $base = '';
 
 	/**
 	 * Ключ API.
@@ -188,7 +188,7 @@ class VL_Account_CRM_Client {
 	 * @param string $site Код магазина.
 	 */
 	public function __construct( $url, $key, $site = '' ) {
-		$this->url  = rtrim( trim( (string) $url ), '/' ) . '/api/v5';
+		$this->base = rtrim( trim( (string) $url ), '/' );
 		$this->key  = trim( (string) $key );
 		$this->site = trim( (string) $site );
 	}
@@ -203,7 +203,8 @@ class VL_Account_CRM_Client {
 	 * @return VL_Account_CRM_Response
 	 */
 	public function credentials() {
-		return $this->get( '/credentials' );
+		// Права ключа лежат вне версии API: /api/credentials, а не /api/v5/...
+		return $this->get( '/credentials', array(), false );
 	}
 
 	/**
@@ -235,7 +236,15 @@ class VL_Account_CRM_Client {
 	 * @return VL_Account_CRM_Response
 	 */
 	public function customersGet( $id, $by = 'externalId' ) { // phpcs:ignore WordPress.NamingConventions.ValidFunctionName.MethodNameInvalid -- совместимость с клиентом Simla.
-		return $this->get( '/customers/' . rawurlencode( (string) $id ), array( 'by' => $by ) );
+		$params = array( 'by' => $by );
+
+		// Магазин CRM принимает только здесь: в списках он не нужен, а на
+		// части эндпоинтов лишний параметр приводит к ошибке.
+		if ( '' !== $this->site ) {
+			$params['site'] = $this->site;
+		}
+
+		return $this->get( '/customers/' . rawurlencode( (string) $id ), $params );
 	}
 
 	/**
@@ -364,22 +373,20 @@ class VL_Account_CRM_Client {
 	/**
 	 * GET-запрос к API.
 	 *
-	 * @param string $path   Путь.
-	 * @param array  $params Параметры.
+	 * @param string $path      Путь.
+	 * @param array  $params    Параметры.
+	 * @param bool   $versioned Запрос к версии API (/api/v5) или к корню (/api).
 	 * @return VL_Account_CRM_Response
 	 */
-	protected function get( $path, $params = array() ) {
+	protected function get( $path, $params = array(), $versioned = true ) {
 		if ( '' === $this->key ) {
 			return new VL_Account_CRM_Response( 0, '', __( 'Не заполнен ключ API.', 'vl-account' ) );
 		}
 
 		$params['apiKey'] = $this->key;
 
-		if ( '' !== $this->site && ! isset( $params['site'] ) && 0 !== strpos( $path, '/reference' ) ) {
-			$params['site'] = $this->site;
-		}
-
-		$url   = $this->url . $path . '?' . http_build_query( $params, '', '&' );
+		$prefix = $versioned ? '/api/v5' : '/api';
+		$url    = $this->base . $prefix . $path . '?' . http_build_query( $params, '', '&' );
 		$start = microtime( true );
 
 		$response = wp_remote_get(

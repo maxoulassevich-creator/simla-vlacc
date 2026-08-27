@@ -1444,6 +1444,42 @@ class VL_Account_RetailCRM {
 	}
 
 	/**
+	 * Человеческая причина отказа из ответа CRM.
+	 *
+	 * Без неё «CRM не ответила» ничего не объясняет: не видно, отказ это по
+	 * правам ключа, опечатка в адресе или вообще нет связи.
+	 *
+	 * @param mixed $response Ответ.
+	 * @return string
+	 */
+	public static function response_reason( $response ) {
+		$code  = is_object( $response ) && is_callable( array( $response, 'getStatusCode' ) ) ? (int) $response->getStatusCode() : 0;
+		$error = is_object( $response ) && is_callable( array( $response, 'getErrorString' ) ) ? (string) $response->getErrorString() : '';
+
+		$known = array(
+			0   => __( 'сайт не смог связаться с CRM — проверьте адрес и доступ в интернет с хостинга', 'vl-account' ),
+			400 => __( 'CRM не приняла запрос', 'vl-account' ),
+			403 => __( 'ключ не подошёл или ему не хватает прав', 'vl-account' ),
+			404 => __( 'такого адреса в CRM нет — проверьте адрес магазина', 'vl-account' ),
+		);
+
+		$parts = array();
+
+		if ( isset( $known[ $code ] ) ) {
+			$parts[] = $known[ $code ];
+		} elseif ( $code ) {
+			/* translators: %d — код ответа HTTP. */
+			$parts[] = sprintf( __( 'ответ CRM: %d', 'vl-account' ), $code );
+		}
+
+		if ( '' !== $error ) {
+			$parts[] = $error;
+		}
+
+		return $parts ? '(' . implode( '; ', $parts ) . ')' : '';
+	}
+
+	/**
 	 * Проверка связи с CRM для диагностики.
 	 *
 	 * @return array ['ok' => bool, 'message' => string]
@@ -1475,11 +1511,21 @@ class VL_Account_RetailCRM {
 		$response = $api->credentials();
 
 		if ( ! VL_Account_RetailCRM::ok( $response ) ) {
+			$reason = self::response_reason( $response );
+
 			return array(
 				'ok'      => false,
 				'message' => self::own_key_ready()
-					? __( 'CRM не ответила на запрос прав своего ключа. Проверьте адрес и ключ API в настройках кабинета.', 'vl-account' )
-					: __( 'CRM не ответила на запрос прав ключа. Проверьте адрес и ключ API.', 'vl-account' ),
+					? sprintf(
+						/* translators: %s — причина отказа. */
+						__( 'CRM не ответила на запрос прав своего ключа. Проверьте адрес и ключ API в настройках кабинета. %s', 'vl-account' ),
+						$reason
+					)
+					: sprintf(
+						/* translators: %s — причина отказа. */
+						__( 'CRM не ответила на запрос прав ключа. Проверьте адрес и ключ API. %s', 'vl-account' ),
+						$reason
+					),
 			);
 		}
 
