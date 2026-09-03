@@ -980,6 +980,12 @@ class VL_Account_Admin {
 				__( 'Строка «Начислим баллов» переносится из блока оплаты к сумме заказа — её видно сразу.', 'vl-account' )
 			);
 			$this->checkbox(
+				'crm_cart_hint',
+				$s,
+				__( 'Подсказка, почему нет поля списания', 'vl-account' ),
+				__( 'Если в корзине не появилось поле «списать баллы», под блоком выводится причина: правила CRM, скидка уровня или пустой баланс. Видно только тем, кто управляет магазином, — покупатель подсказку не увидит.', 'vl-account' )
+			);
+			$this->checkbox(
 				'crm_loyalty_auto',
 				$s,
 				__( 'Вступать в программу автоматически', 'vl-account' ),
@@ -1698,7 +1704,7 @@ class VL_Account_Admin {
 			'forms'   => array( 'passwordless', 'auto_register', 'ask_name', 'login_from_name', 'auth_marketing_box', 'show_telegram', 'gate_cart', 'consent_privacy', 'consent_marketing' ),
 			'account' => array( 'wishlist_on_product', 'profile_address', 'profile_shipping', 'ws_enabled', 'ws_two_way', 'ws_merge_guest', 'ws_hide_our_button', 'ws_size_buttons', 'sn_enabled', 'sn_show_sent', 'sn_match_email' ),
 			'orders'  => array( 'auto_create_account', 'attach_guest_orders', 'match_by_phone', 'email_on_register', 'email_on_autocreate', 'email_confirm', 'email_from_checkout', 'carts_enabled', 'autofill', 'autofill_fix_forms' ),
-			'crm'     => array( 'crm_enabled', 'crm_api_log', 'crm_sync_customer', 'crm_sync_consents', 'crm_skip_tech_email', 'crm_order_priority', 'crm_loyalty_ui', 'crm_loyalty_auto', 'crm_hide_wc_loyalty', 'crm_credit_top', 'crm_promo_combine', 'crm_promo_hide_loyalty', 'crm_fix_coupon_email', 'identity_orders', 'identity_crm', 'crm_directory', 'crm_lookup_live', 'crm_link_by_phone', 'crm_orders_history', 'crm_sync_daily', 'identity_merge', 'identity_delete_merged', 'identity_trust_crm_email' ),
+			'crm'     => array( 'crm_enabled', 'crm_api_log', 'crm_sync_customer', 'crm_sync_consents', 'crm_skip_tech_email', 'crm_order_priority', 'crm_loyalty_ui', 'crm_loyalty_auto', 'crm_hide_wc_loyalty', 'crm_credit_top', 'crm_cart_hint', 'crm_promo_combine', 'crm_promo_hide_loyalty', 'crm_fix_coupon_email', 'identity_orders', 'identity_crm', 'crm_directory', 'crm_lookup_live', 'crm_link_by_phone', 'crm_orders_history', 'crm_sync_daily', 'identity_merge', 'identity_delete_merged', 'identity_trust_crm_email' ),
 			'design'  => array(),
 		);
 

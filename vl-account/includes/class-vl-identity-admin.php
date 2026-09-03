@@ -537,6 +537,61 @@ class VL_Account_Identity_Admin {
 	}
 
 	/**
+	 * Появится ли у покупателя поле «списать баллы» с этим товаром.
+	 *
+	 * Разбирает введённое: покупателя ищем по номеру или по #ID аккаунта,
+	 * товар — по ID или артикулу. Сам расчёт делает интеграция с CRM.
+	 *
+	 * @param string $who  Телефон или #ID аккаунта.
+	 * @param string $item ID товара или артикул.
+	 * @param int    $qty  Количество.
+	 * @return array Строки отчёта: label => value.
+	 */
+	public static function probe_charge( $who, $item, $qty = 1 ) {
+		$user_id = 0;
+		$who     = trim( (string) $who );
+
+		// Номер вводить удобнее, но по #ID проверять точнее: на спорном номере
+		// аккаунтов несколько, и важно, какой именно из них смотрим.
+		if ( preg_match( '/^#?(\d+)$/', $who, $m ) && get_user_by( 'id', (int) $m[1] ) ) {
+			$user_id = (int) $m[1];
+		} else {
+			$user = VL_Account_User::get_by_phone( VL_Account_Phone::normalize( $who ) );
+
+			if ( ! $user ) {
+				return array(
+					__( 'Покупатель', 'vl-account' ) => __( 'по этому номеру аккаунта нет — укажите #ID аккаунта', 'vl-account' ),
+				);
+			}
+
+			$user_id = (int) $user->ID;
+		}
+
+		$item       = trim( (string) $item );
+		$product_id = 0;
+
+		if ( ctype_digit( $item ) ) {
+			$product_id = (int) $item;
+		} elseif ( function_exists( 'wc_get_product_id_by_sku' ) ) {
+			$product_id = (int) wc_get_product_id_by_sku( $item );
+		}
+
+		if ( ! $product_id ) {
+			return array(
+				__( 'Товар', 'vl-account' ) => __( 'не найден: укажите ID товара или его артикул', 'vl-account' ),
+			);
+		}
+
+		if ( ! class_exists( 'VL_Account_RetailCRM_Cart' ) ) {
+			return array(
+				__( 'Интеграция', 'vl-account' ) => __( 'плагин Simla не активен — проверять нечего', 'vl-account' ),
+			);
+		}
+
+		return VL_Account_RetailCRM_Cart::probe_charge( $user_id, $product_id, $qty );
+	}
+
+	/**
 	 * Что известно про телефон: аккаунт, карточка CRM, участие, заказы.
 	 *
 	 * Это ответ на вопрос «почему у покупателя ничего не подтянулось»:
@@ -711,7 +766,9 @@ class VL_Account_Identity_Admin {
 			$anchor_user     = $user ? (int) $user->ID : 0;
 
 			if ( $anchor_external && $anchor_user && $anchor_external === $anchor_user ) {
-				$spend = __( 'да — карточка с баллами привязана к этому аккаунту', 'vl-account' );
+				// Связь — только половина ответа: появится ли в корзине поле
+				// списания, решает CRM по составу заказа. Это отдельная проверка.
+				$spend = __( 'связь в порядке — карточка с баллами привязана к этому аккаунту. Появится ли поле списания в корзине, решает CRM по составу заказа: проверьте это ниже, «Проверка списания баллов в заказе».', 'vl-account' );
 			} elseif ( ! $anchor_external ) {
 				$spend = sprintf(
 					/* translators: %d — карточка CRM. */
@@ -1000,6 +1057,12 @@ class VL_Account_Identity_Admin {
 		$search = isset( $_GET['s'] ) ? sanitize_text_field( wp_unslash( $_GET['s'] ) ) : '';
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
 		$probe = isset( $_GET['probe'] ) ? sanitize_text_field( wp_unslash( $_GET['probe'] ) ) : '';
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$charge_who = isset( $_GET['charge_who'] ) ? sanitize_text_field( wp_unslash( $_GET['charge_who'] ) ) : '';
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$charge_item = isset( $_GET['charge_item'] ) ? sanitize_text_field( wp_unslash( $_GET['charge_item'] ) ) : '';
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$charge_qty = isset( $_GET['charge_qty'] ) ? max( 1, (int) $_GET['charge_qty'] ) : 1;
 
 		$state = VL_Account_RetailCRM_Directory::state();
 		$stats = VL_Account_RetailCRM_Directory::stats();
@@ -1153,6 +1216,35 @@ class VL_Account_Identity_Admin {
 						<?php esc_html_e( 'Разбор неверного сопоставления. «Отвязать номер» убирает телефон из профиля аккаунта — после этого вход по SMS больше не приводит в него. «Забыть карточки номера» удаляет строки этого телефона из снимка базы CRM: нужно, если в CRM на одном номере оказались разные люди. Данные в самой CRM ни одна из кнопок не меняет.', 'vl-account' ); ?>
 					</p>
 				</form>
+			<?php endif; ?>
+
+			<h2 id="vlacc-charge"><?php esc_html_e( 'Проверка списания баллов в заказе', 'vl-account' ); ?></h2>
+
+			<p class="description" style="max-width:900px">
+				<?php esc_html_e( 'Отвечает на вопрос «почему у покупателя в корзине нет поля „списать баллы“». Появится оно или нет, решает CRM: она смотрит на состав заказа, уровень покупателя и правила программы. Здесь собирается ровно такой же запрос, какой уходит из корзины, — по шагам видно, где обрывается цепочка. Запрос считающий, в CRM ничего не меняется, корзину покупателя он не трогает.', 'vl-account' ); ?>
+			</p>
+
+			<form method="get" style="margin-bottom:12px">
+				<input type="hidden" name="page" value="<?php echo esc_attr( self::PAGE ); ?>" />
+				<input type="text" name="charge_who" value="<?php echo esc_attr( $charge_who ); ?>"
+					placeholder="<?php esc_attr_e( 'телефон или #ID аккаунта', 'vl-account' ); ?>" style="width:220px" />
+				<input type="text" name="charge_item" value="<?php echo esc_attr( $charge_item ); ?>"
+					placeholder="<?php esc_attr_e( 'ID товара или артикул', 'vl-account' ); ?>" style="width:200px" />
+				<input type="number" name="charge_qty" value="<?php echo esc_attr( $charge_qty ); ?>" min="1" step="1" style="width:70px" />
+				<button class="button button-primary"><?php esc_html_e( 'Проверить', 'vl-account' ); ?></button>
+			</form>
+
+			<?php if ( '' !== $charge_who && '' !== $charge_item ) : ?>
+				<table class="widefat striped" style="max-width:900px;margin-bottom:24px">
+					<tbody>
+						<?php foreach ( self::probe_charge( $charge_who, $charge_item, $charge_qty ) as $vl_label => $vl_value ) : ?>
+							<tr>
+								<td style="width:280px"><strong><?php echo esc_html( $vl_label ); ?></strong></td>
+								<td><?php echo esc_html( is_scalar( $vl_value ) ? (string) $vl_value : wp_json_encode( $vl_value ) ); ?></td>
+							</tr>
+						<?php endforeach; ?>
+					</tbody>
+				</table>
 			<?php endif; ?>
 
 			<h2 id="vlacc-audit"><?php esc_html_e( 'Телефоны, записанные плагином', 'vl-account' ); ?></h2>

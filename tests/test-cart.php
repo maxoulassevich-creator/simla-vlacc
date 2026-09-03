@@ -148,6 +148,125 @@ echo "\n== 5. Пустая корзина ==\n";
 $cart->items = array();
 check( 'без товаров расчёта нет', null === VL_Account_RetailCRM_Cart::calculate( 0 ) );
 
+echo "\n== 5.1. Почему нет поля списания ==\n";
+
+// Ровно тот случай с боевого сайта: строка начисления есть, поля списания нет.
+// Со стороны не видно, кто отказал — CRM или пустой баланс, поэтому причину
+// формулируем явно.
+$reason = VL_Account_RetailCRM_Cart::no_charge_reason(
+	array(
+		'balance'   => 1700.0,
+		'max'       => 0.0,
+		'crm_max'   => 0.0,
+		'has_level' => true,
+		'used'      => 0.0,
+		'credit'    => 1400.0,
+		'discount'  => 0.0,
+	)
+);
+
+check( 'CRM запретила списание — причина названа', false !== mb_strpos( $reason, 'CRM разрешает списать 0' ), $reason );
+
+$reason = VL_Account_RetailCRM_Cart::no_charge_reason(
+	array(
+		'balance'   => 0.0,
+		'max'       => 0.0,
+		'crm_max'   => 500.0,
+		'has_level' => true,
+		'used'      => 0.0,
+		'credit'    => 10.0,
+		'discount'  => 0.0,
+	)
+);
+
+check( 'пустой баланс — причина другая', false !== mb_strpos( $reason, 'Доступных баллов нет' ), $reason );
+
+$reason = VL_Account_RetailCRM_Cart::no_charge_reason(
+	array(
+		'balance'   => 500.0,
+		'max'       => 0.0,
+		'crm_max'   => 0.0,
+		'has_level' => false,
+		'used'      => 0.0,
+		'credit'    => 0.0,
+		'discount'  => 0.0,
+	)
+);
+
+check( 'CRM не вернула расчёт уровня', false !== mb_strpos( $reason, 'не вернула расчёт' ), $reason );
+
+$reason = VL_Account_RetailCRM_Cart::no_charge_reason(
+	array(
+		'balance'   => 500.0,
+		'max'       => 0.0,
+		'crm_max'   => 0.0,
+		'has_level' => true,
+		'used'      => 0.0,
+		'credit'    => 0.0,
+		'discount'  => 150.0,
+	)
+);
+
+check( 'скидка уровня объясняется отдельно', false !== mb_strpos( $reason, 'скидка уровня' ), $reason );
+
+check(
+	'списание возможно — причины нет',
+	'' === VL_Account_RetailCRM_Cart::no_charge_reason(
+		array(
+			'balance'   => 500.0,
+			'max'       => 300.0,
+			'crm_max'   => 300.0,
+			'has_level' => true,
+			'used'      => 0.0,
+			'credit'    => 42.0,
+			'discount'  => 0.0,
+		)
+	)
+);
+
+check(
+	'списание уже применено — причины нет',
+	'' === VL_Account_RetailCRM_Cart::no_charge_reason(
+		array(
+			'balance'   => 500.0,
+			'max'       => 0.0,
+			'crm_max'   => 300.0,
+			'has_level' => true,
+			'used'      => 300.0,
+			'credit'    => 10.0,
+			'discount'  => 0.0,
+		)
+	)
+);
+
+check( 'без данных виджета причина тоже есть', '' !== VL_Account_RetailCRM_Cart::no_charge_reason( null ) );
+
+echo "\n== 5.2. Расчёт по произвольным позициям ==\n";
+
+// Диагностика в админке считает не по живой корзине, а по одному товару.
+WC_Retailcrm_Proxy::$responses['calculateDiscountLoyalty'] = new WC_Retailcrm_Response(
+	200,
+	'{"calculations":[{"privilegeType":"loyalty_level","maxChargeBonuses":0}],
+	  "loyalty":{"chargeRate":1},
+	  "order":{"bonusesCreditTotal":1400,"items":[{"discounts":[]}]}}'
+);
+WC_Retailcrm_Proxy::$responses['getLoyaltyAccountList'] = new WC_Retailcrm_Response(
+	200,
+	'{"loyaltyAccounts":[{"id":12,"active":true,"amount":1700,"ordersSum":1000,"nextLevelSum":0,
+	  "level":{"name":"First Love","type":"bonus_percent","privilegeSize":5,"privilegeSizePromo":2},
+	  "loyalty":{"currency":"RUB"}}]}'
+);
+VL_Account_RetailCRM::flush( 1 );
+
+$calc = VL_Account_RetailCRM_Cart::calculate_items( array( 'probe' => array( 'quantity' => 1, 'data' => null ) ), 1, 0 );
+
+check( 'расчёт по одной позиции получен', is_array( $calc ), var_export( $calc, true ) );
+check( 'CRM разрешила 0 баллов', 0.0 === $calc['max'], var_export( $calc['max'], true ) );
+check( 'начисление при этом есть', 1400.0 === $calc['credit'] );
+check( 'расчёт уровня в ответе был', true === $calc['has_level'] );
+check( 'без позиций расчёта нет', null === VL_Account_RetailCRM_Cart::calculate_items( array(), 1, 0 ) );
+check( 'без покупателя расчёта нет', null === VL_Account_RetailCRM_Cart::calculate_items( array( 'probe' => array( 'quantity' => 1, 'data' => null ) ), 0, 0 ) );
+
 echo "\n== 6. Купоны с техническим адресом ==\n";
 $cart_obj = VL_Account_RetailCRM_Cart::instance();
 $fixed    = apply_filters( 'woocommerce_coupon_get_email_restrictions', array( '79001234567@phone.example.test' ), new WC_Coupon( 'loyalty1' ) );

@@ -155,18 +155,6 @@ class VL_Account_RetailCRM_Cart {
 			return null;
 		}
 
-		$account = VL_Account_RetailCRM::account( $user_id );
-
-		if ( 'active' !== $account['status'] ) {
-			return null;
-		}
-
-		$site = VL_Account_RetailCRM::site();
-
-		if ( '' === $site ) {
-			return null;
-		}
-
 		$signature = array();
 
 		foreach ( $items as $cart_key => $item ) {
@@ -177,6 +165,40 @@ class VL_Account_RetailCRM_Cart {
 
 		if ( isset( self::$calc[ $key ] ) ) {
 			return self::$calc[ $key ];
+		}
+
+		self::$calc[ $key ] = self::calculate_items( $items, $user_id, $bonuses );
+
+		return self::$calc[ $key ];
+	}
+
+	/**
+	 * Расчёт по произвольному набору позиций.
+	 *
+	 * Отдельно от корзины, чтобы тем же путём мог пройти диагностический
+	 * прогон в админке: он собирает позиции руками и проверяет ответ CRM
+	 * для конкретного покупателя и конкретного товара.
+	 *
+	 * @param array $items    Позиции в формате корзины WooCommerce: data, quantity.
+	 * @param int   $user_id  Покупатель.
+	 * @param float $bonuses  Сколько баллов планируем списать.
+	 * @return array|null
+	 */
+	public static function calculate_items( $items, $user_id, $bonuses = 0 ) {
+		if ( ! $items || ! $user_id ) {
+			return null;
+		}
+
+		$account = VL_Account_RetailCRM::account( $user_id );
+
+		if ( 'active' !== $account['status'] ) {
+			return null;
+		}
+
+		$site = VL_Account_RetailCRM::site();
+
+		if ( '' === $site ) {
+			return null;
 		}
 
 		$loyalty = VL_Account_RetailCRM::loyalty();
@@ -197,6 +219,7 @@ class VL_Account_RetailCRM_Cart {
 			'level_discount' => 0.0,
 			'charge_rate'    => 1.0,
 			'currency'       => $account['currency'],
+			'has_level'      => false,
 		);
 
 		// Автоматическая скидка уровня: баллы в таком заказе не списываются.
@@ -228,11 +251,10 @@ class VL_Account_RetailCRM_Cart {
 					continue;
 				}
 
-				$result['max'] = isset( $calculation['maxChargeBonuses'] ) ? (float) $calculation['maxChargeBonuses'] : 0.0;
+				$result['has_level'] = true;
+				$result['max']       = isset( $calculation['maxChargeBonuses'] ) ? (float) $calculation['maxChargeBonuses'] : 0.0;
 			}
 		}
-
-		self::$calc[ $key ] = $result;
 
 		return $result;
 	}
@@ -293,14 +315,217 @@ class VL_Account_RetailCRM_Cart {
 		$calc = null === $calc ? $base : $calc;
 
 		return array(
-			'balance'  => (float) $account['amount'],
-			'max'      => min( (float) $account['amount'], (float) $base['max'] ),
-			'used'     => $used,
-			'credit'   => (float) $calc['credit'],
-			'discount' => (float) $base['level_discount'],
-			'currency' => $account['currency'],
-			'level'    => $account['level'],
+			'balance'   => (float) $account['amount'],
+			'max'       => min( (float) $account['amount'], (float) $base['max'] ),
+			// Сколько разрешает сама CRM — до ограничения балансом. Нужно, чтобы
+			// отличить «CRM не даёт списывать» от «списывать нечего».
+			'crm_max'   => (float) $base['max'],
+			'has_level' => ! empty( $base['has_level'] ),
+			'used'      => $used,
+			'credit'    => (float) $calc['credit'],
+			'discount'  => (float) $base['level_discount'],
+			'currency'  => $account['currency'],
+			'level'     => $account['level'],
 		);
+	}
+
+	/**
+	 * Почему в корзине нет поля списания.
+	 *
+	 * Шаблон в этом случае молча показывает только строку начисления, и понять
+	 * причину со стороны нельзя: решение принимает CRM по составу заказа.
+	 *
+	 * @param array|null $data Данные виджета.
+	 * @return string Пустая строка, если списать баллы можно.
+	 */
+	public static function no_charge_reason( $data ) {
+		if ( ! is_array( $data ) ) {
+			return __( 'Блок не выводится: покупатель не в программе лояльности, корзина пуста или CRM не ответила.', 'vl-account' );
+		}
+
+		if ( $data['discount'] > 0 ) {
+			return __( 'В заказе действует автоматическая скидка уровня — вместе с ней баллы не списываются. Вместо поля покупатель видит строку про скидку.', 'vl-account' );
+		}
+
+		// Списание уже применено: вместо поля покупатель видит «Списываем N».
+		if ( $data['used'] > 0 ) {
+			return '';
+		}
+
+		if ( floor( $data['max'] ) > 0 ) {
+			return '';
+		}
+
+		if ( ! $data['has_level'] ) {
+			return __( 'CRM не вернула расчёт по уровню программы лояльности для этой корзины — списание недоступно.', 'vl-account' );
+		}
+
+		if ( $data['crm_max'] <= 0 ) {
+			return __( 'CRM разрешает списать 0 баллов на этот состав заказа. Так бывает, когда товар не участвует в программе, продаётся со скидкой или у уровня покупателя нулевой процент списания.', 'vl-account' );
+		}
+
+		if ( $data['balance'] <= 0 ) {
+			return __( 'Доступных баллов нет: на счёте либо пусто, либо всё ещё ждёт активации.', 'vl-account' );
+		}
+
+		return __( 'Списывать нечего: после округления к списанию доступно меньше одного балла.', 'vl-account' );
+	}
+
+	/* ------------------------------------------------------------------
+	 * Диагностика
+	 * ------------------------------------------------------------------ */
+
+	/**
+	 * Прогон списания баллов для конкретного покупателя и товара.
+	 *
+	 * Живую корзину повторить со стороны админки нельзя, а решение о списании
+	 * принимает CRM и зависит оно от состава заказа и уровня покупателя. Здесь
+	 * собирается ровно такой же запрос, какой уходит из корзины, — по шагам
+	 * видно, где обрывается цепочка и почему поле списания не появляется.
+	 *
+	 * Запрос считающий, в CRM ничего не меняет.
+	 *
+	 * @param int $user_id    Покупатель.
+	 * @param int $product_id Товар или вариация.
+	 * @param int $qty        Количество.
+	 * @return array Отчёт: подпись => значение.
+	 */
+	public static function probe_charge( $user_id, $product_id, $qty = 1 ) {
+		$report  = array();
+		$user_id = (int) $user_id;
+		$qty     = max( 1, (int) $qty );
+
+		$user = get_user_by( 'id', $user_id );
+
+		$report[ __( 'Покупатель', 'vl-account' ) ] = $user
+			? sprintf( '#%d — %s (%s)', $user->ID, $user->user_login, $user->user_email )
+			: __( 'аккаунт не найден', 'vl-account' );
+
+		if ( ! $user ) {
+			return $report;
+		}
+
+		if ( ! VL_Account_RetailCRM::loyalty_active() ) {
+			$report[ __( 'Программа лояльности', 'vl-account' ) ] = __( 'выключена в настройках плагина или в Simla — блока в корзине не будет вообще', 'vl-account' );
+
+			return $report;
+		}
+
+		if ( ! vlacc_is_woo() || ! function_exists( 'wc_get_product' ) ) {
+			$report[ __( 'WooCommerce', 'vl-account' ) ] = __( 'не активен', 'vl-account' );
+
+			return $report;
+		}
+
+		$product = wc_get_product( $product_id );
+
+		if ( ! $product ) {
+			$report[ __( 'Товар', 'vl-account' ) ] = sprintf(
+				/* translators: %d — ID товара. */
+				__( 'товар %d не найден', 'vl-account' ),
+				(int) $product_id
+			);
+
+			return $report;
+		}
+
+		$regular = (float) wc_get_price_including_tax( $product, array( 'price' => $product->get_regular_price() ) );
+		$active  = (float) wc_get_price_including_tax( $product );
+
+		$report[ __( 'Товар', 'vl-account' ) ] = sprintf(
+			/* translators: 1: название, 2: ID, 3: артикул, 4: количество. */
+			__( '%1$s (ID %2$d, артикул %3$s) × %4$d', 'vl-account' ),
+			$product->get_name(),
+			$product->get_id(),
+			$product->get_sku() ? $product->get_sku() : '—',
+			$qty
+		);
+
+		$report[ __( 'Цена для CRM', 'vl-account' ) ] = sprintf(
+			/* translators: 1: обычная цена, 2: цена продажи, 3: ручная скидка. */
+			__( 'обычная %1$s, продаётся за %2$s, ручная скидка в запросе %3$s', 'vl-account' ),
+			wp_strip_all_tags( wc_price( $regular ) ),
+			wp_strip_all_tags( wc_price( $active ) ),
+			wp_strip_all_tags( wc_price( max( 0, $regular - $active ) ) )
+		);
+
+		// Сбрасываем кэш: диагностика должна показывать сегодняшнее состояние.
+		VL_Account_RetailCRM::flush( $user_id );
+
+		$account = VL_Account_RetailCRM::account( $user_id, true );
+
+		$report[ __( 'Участие в программе', 'vl-account' ) ] = sprintf(
+			/* translators: 1: статус, 2: уровень, 3: доступные баллы, 4: ждут активации. */
+			__( 'статус «%1$s», уровень «%2$s», доступно %3$s, ждут активации %4$s', 'vl-account' ),
+			$account['status'],
+			isset( $account['level']['name'] ) ? $account['level']['name'] : '—',
+			number_format_i18n( $account['amount'] ),
+			number_format_i18n( $account['activation_sum'] )
+		);
+
+		if ( 'active' !== $account['status'] ) {
+			$report[ __( 'Итог', 'vl-account' ) ] = __( 'Блока в корзине не будет: участие не активно. Пока покупатель не подтвердит участие по SMS, ни списания, ни строки начисления он не увидит.', 'vl-account' );
+
+			return $report;
+		}
+
+		$site = VL_Account_RetailCRM::site();
+
+		$report[ __( 'Магазин для CRM', 'vl-account' ) ] = '' !== $site ? $site : __( 'НЕ ОПРЕДЕЛЁН — расчёт в CRM не уйдёт', 'vl-account' );
+
+		if ( '' === $site ) {
+			return $report;
+		}
+
+		$items = array(
+			'vlacc-probe' => array(
+				'key'        => 'vlacc-probe',
+				'product_id' => $product->get_id(),
+				'quantity'   => $qty,
+				'data'       => $product,
+			),
+		);
+
+		$calc = self::calculate_items( $items, $user_id, 0 );
+
+		if ( null === $calc ) {
+			$report[ __( 'Ответ CRM', 'vl-account' ) ] = __( 'расчёт не получен — CRM вернула ошибку. Подробности в журнале плагина Simla.', 'vl-account' );
+
+			return $report;
+		}
+
+		$report[ __( 'Ответ CRM', 'vl-account' ) ] = sprintf(
+			/* translators: 1: максимум к списанию, 2: курс, 3: скидка уровня, 4: начисление. */
+			__( 'разрешено списать %1$s, курс балла %2$s, скидка уровня %3$s, начислим %4$s', 'vl-account' ),
+			number_format_i18n( $calc['max'] ),
+			number_format_i18n( $calc['charge_rate'], 2 ),
+			wp_strip_all_tags( wc_price( $calc['level_discount'] ) ),
+			number_format_i18n( $calc['credit'] )
+		);
+
+		$data = array(
+			'balance'   => (float) $account['amount'],
+			'max'       => min( (float) $account['amount'], (float) $calc['max'] ),
+			'crm_max'   => (float) $calc['max'],
+			'has_level' => ! empty( $calc['has_level'] ),
+			'used'      => 0.0,
+			'credit'    => (float) $calc['credit'],
+			'discount'  => (float) $calc['level_discount'],
+			'currency'  => $account['currency'],
+			'level'     => $account['level'],
+		);
+
+		$reason = self::no_charge_reason( $data );
+
+		$report[ __( 'Итог', 'vl-account' ) ] = '' === $reason
+			? sprintf(
+				/* translators: %s — максимум баллов. */
+				__( 'Поле списания появится, максимум %s баллов.', 'vl-account' ),
+				number_format_i18n( floor( $data['max'] ) )
+			)
+			: $reason;
+
+		return $report;
 	}
 
 	/**
@@ -339,6 +564,41 @@ class VL_Account_RetailCRM_Cart {
 
 		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- вывод собирается в шаблоне.
 		echo $this->shortcode();
+
+		$this->render_hint();
+	}
+
+	/**
+	 * Подсказка администратору, почему в корзине нет поля списания.
+	 *
+	 * Покупателю причину показывать незачем, а магазину без неё остаётся
+	 * только гадать: блок выглядит одинаково и когда списание запрещено
+	 * правилами CRM, и когда на счёте нет доступных баллов.
+	 */
+	protected function render_hint() {
+		if ( ! VL_Account_Settings::get( 'crm_cart_hint', 1 ) || ! current_user_can( 'manage_woocommerce' ) ) {
+			return;
+		}
+
+		$data = self::widget_data();
+
+		// Скидку уровня и уже применённое списание блок объясняет сам —
+		// подсказка нужна там, где покупатель не видит ничего.
+		if ( is_array( $data ) && ( $data['discount'] > 0 || $data['used'] > 0 ) ) {
+			return;
+		}
+
+		$reason = self::no_charge_reason( $data );
+
+		if ( '' === $reason ) {
+			return;
+		}
+
+		printf(
+			'<p class="vl-loyalty-cart__hint" style="margin:8px 0 0;font-size:12px;opacity:.75">%s <em>%s</em></p>',
+			esc_html__( 'Видно только администратору:', 'vl-account' ),
+			esc_html( $reason )
+		);
 	}
 
 	/**
