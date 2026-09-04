@@ -939,6 +939,83 @@ body.vl-drawer-open {
 	text-align: right;
 }
 
+/* Строка товара: миниатюра слева, название и свойства справа.
+   Пропорцию не навязываем: миниатюры приходят одного размера
+   (woocommerce_thumbnail), и обрезать их кадрированием незачем. */
+
+.vl-table__product {
+	padding-right: 20px;
+}
+
+/* Рядом с миниатюрой количество и сумма, прижатые к верху строки,
+   выглядят потерянными — выравниваем по центру. */
+.vl-table--items td,
+.vl-table--subs td {
+	vertical-align: middle;
+}
+
+.vl-item {
+	display: flex;
+	align-items: center;
+	gap: 14px;
+}
+
+.vl-item__thumb {
+	flex: 0 0 auto;
+	display: block;
+	width: 56px;
+	overflow: hidden;
+	background: var(--vl-bg-soft);
+	border-radius: var(--vl-radius);
+}
+
+.vl-item__thumb img {
+	display: block;
+	width: 100%;
+	height: auto;
+	margin: 0;
+	border-radius: 0;
+}
+
+.vl-item__body {
+	min-width: 0;
+}
+
+.vl-item__title {
+	display: block;
+}
+
+/* Свойства позиции (размер, цвет) WooCommerce отдаёт своей разметкой. */
+.vl-item__body .wc-item-meta,
+.vl-item__body .variation {
+	margin: 4px 0 0;
+	padding: 0;
+	list-style: none;
+	font-size: 12px;
+	color: var(--vl-muted);
+}
+
+.vl-item__body .wc-item-meta li,
+.vl-item__body .wc-item-meta p,
+.vl-item__body .variation dd,
+.vl-item__body .variation dt {
+	display: inline;
+	margin: 0;
+	font-size: inherit;
+}
+
+/* WooCommerce отдаёт «Размер:» и значение вплотную друг к другу. */
+.vl-item__body .wc-item-meta-label,
+.vl-item__body .variation dt {
+	margin-right: 4px;
+	font-weight: 500;
+}
+
+.vl-item__body .wc-item-meta li + li::before,
+.vl-item__body .variation dt:not(:first-child)::before {
+	content: " · ";
+}
+
 .vl-status {
 	display: inline-block;
 	font-size: 11px;
@@ -1532,6 +1609,18 @@ body.vl-drawer-open {
 		letter-spacing: 0.05em;
 		color: var(--vl-muted);
 		text-align: left;
+	}
+
+	/* Товар с картинкой идёт шапкой карточки: подпись «Товар» рядом
+	   с изображением и названием не нужна, а прижимать их вправо нельзя. */
+	.vl-table td.vl-table__product {
+		display: block;
+		text-align: left;
+		padding: 0 0 10px;
+	}
+
+	.vl-table td.vl-table__product::before {
+		display: none;
 	}
 
 	.vl-table tfoot th {

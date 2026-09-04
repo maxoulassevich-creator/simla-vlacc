@@ -26,6 +26,7 @@ $files = array(
 	'test-phone-audit.php' => 'Разбор телефонов, записанных плагином',
 	'test-email-checkout.php' => 'Почта из оформления заказа',
 	'test-icons.php'     => 'Иконки плагина',
+	'test-item-thumb.php' => 'Миниатюры товара в таблицах кабинета',
 	'test-sms.php'       => 'Клиент SMS.RU и имя отправителя',
 	'test-templates.php' => 'Шаблоны кабинета и корзины',
 );

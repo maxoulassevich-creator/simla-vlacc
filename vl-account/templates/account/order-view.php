@@ -56,26 +56,37 @@ if ( ! $vl_order || ! VL_Account_Orders::can_view( $vl_order, $user_id ) ) {
 			<tbody>
 				<?php foreach ( $vl_order->get_items() as $vl_item ) : ?>
 					<tr>
-						<td data-label="<?php esc_attr_e( 'Товар', 'vl-account' ); ?>">
+						<td class="vl-table__product" data-label="<?php esc_attr_e( 'Товар', 'vl-account' ); ?>">
 							<?php
 							$vl_product = $vl_item->get_product();
-
-							if ( $vl_product && $vl_product->is_visible() ) {
-								printf(
-									'<a href="%s">%s</a>',
-									esc_url( $vl_product->get_permalink() ),
-									esc_html( $vl_item->get_name() )
-								);
-							} else {
-								echo esc_html( $vl_item->get_name() );
-							}
-
-							$vl_meta = wc_display_item_meta( $vl_item, array( 'echo' => false ) );
-
-							if ( $vl_meta ) {
-								echo wp_kses_post( $vl_meta );
-							}
+							$vl_link    = ( $vl_product && $vl_product->is_visible() ) ? $vl_product->get_permalink() : '';
 							?>
+							<div class="vl-item">
+								<?php
+								// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- разметка собрана и очищена в vlacc_item_thumb().
+								echo vlacc_item_thumb( $vl_product, $vl_link );
+								?>
+
+								<div class="vl-item__body">
+									<?php
+									if ( '' !== $vl_link ) {
+										printf(
+											'<a class="vl-item__title" href="%s">%s</a>',
+											esc_url( $vl_link ),
+											esc_html( $vl_item->get_name() )
+										);
+									} else {
+										printf( '<span class="vl-item__title">%s</span>', esc_html( $vl_item->get_name() ) );
+									}
+
+									$vl_meta = wc_display_item_meta( $vl_item, array( 'echo' => false ) );
+
+									if ( $vl_meta ) {
+										echo wp_kses_post( $vl_meta );
+									}
+									?>
+								</div>
+							</div>
 						</td>
 						<td data-label="<?php esc_attr_e( 'Кол-во', 'vl-account' ); ?>"><?php echo esc_html( $vl_item->get_quantity() ); ?></td>
 						<td data-label="<?php esc_attr_e( 'Сумма', 'vl-account' ); ?>"><?php echo wp_kses_post( $vl_order->get_formatted_line_subtotal( $vl_item ) ); ?></td>

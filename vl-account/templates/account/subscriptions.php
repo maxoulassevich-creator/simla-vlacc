@@ -45,14 +45,27 @@ $vl_subs = apply_filters( 'vlacc_user_subscriptions', array(), $user_id );
 						$vl_stock  = ! empty( $vl_sub['in_stock'] );
 						?>
 						<tr<?php echo $vl_sub_id ? ' data-vl-subscription="' . esc_attr( $vl_sub_id ) . '"' : ''; ?>>
-							<td data-label="<?php esc_attr_e( 'Товар', 'vl-account' ); ?>">
+							<td class="vl-table__product" data-label="<?php esc_attr_e( 'Товар', 'vl-account' ); ?>">
 								<?php
-								if ( $vl_pid && get_permalink( $vl_pid ) ) {
-									printf( '<a href="%s">%s</a>', esc_url( get_permalink( $vl_pid ) ), esc_html( $vl_title ? $vl_title : get_the_title( $vl_pid ) ) );
-								} else {
-									echo esc_html( $vl_title );
-								}
+								$vl_link = $vl_pid ? (string) get_permalink( $vl_pid ) : '';
+								$vl_name = $vl_pid && ! $vl_title ? get_the_title( $vl_pid ) : $vl_title;
 								?>
+								<div class="vl-item">
+									<?php
+									// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- разметка собрана и очищена в vlacc_item_thumb().
+									echo vlacc_item_thumb( $vl_pid, $vl_link );
+									?>
+
+									<div class="vl-item__body">
+										<?php
+										if ( '' !== $vl_link ) {
+											printf( '<a class="vl-item__title" href="%s">%s</a>', esc_url( $vl_link ), esc_html( $vl_name ) );
+										} else {
+											printf( '<span class="vl-item__title">%s</span>', esc_html( $vl_name ) );
+										}
+										?>
+									</div>
+								</div>
 							</td>
 							<td data-label="<?php esc_attr_e( 'Размер', 'vl-account' ); ?>"><?php echo esc_html( isset( $vl_sub['size'] ) ? $vl_sub['size'] : '' ); ?></td>
 							<td data-label="<?php esc_attr_e( 'Дата', 'vl-account' ); ?>"><?php echo esc_html( isset( $vl_sub['date'] ) ? date_i18n( 'd.m.Y', strtotime( $vl_sub['date'] ) ) : '' ); ?></td>

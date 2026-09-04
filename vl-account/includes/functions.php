@@ -203,6 +203,55 @@ function vlacc_is_woo() {
 }
 
 /**
+ * Миниатюра товара для строки таблицы кабинета.
+ *
+ * Одна разметка на заказы и подписки: строка товара без картинки читается
+ * как строка прайса, а в магазине одежды покупатель узнаёт вещь по виду,
+ * а не по названию.
+ *
+ * Заглушку WooCommerce оставляем намеренно: без неё строки таблицы прыгают
+ * по высоте — у одних товаров картинка есть, у других нет.
+ *
+ * @param WC_Product|int|false $product Товар или его ID.
+ * @param string               $url     Ссылка на товар; пусто — картинка без ссылки.
+ * @return string Готовая разметка или пустая строка.
+ */
+function vlacc_item_thumb( $product, $url = '' ) {
+	if ( ! vlacc_is_woo() ) {
+		return '';
+	}
+
+	if ( is_numeric( $product ) ) {
+		$product = wc_get_product( (int) $product );
+	}
+
+	if ( $product instanceof WC_Product ) {
+		// У вариации своей картинки может не быть — WooCommerce сам подставит
+		// картинку родительского товара.
+		$image = $product->get_image( 'woocommerce_thumbnail', array( 'loading' => 'lazy' ) );
+	} elseif ( function_exists( 'wc_placeholder_img' ) ) {
+		// Товар удалили из каталога, а в заказе он остался.
+		$image = wc_placeholder_img( 'woocommerce_thumbnail' );
+	} else {
+		$image = '';
+	}
+
+	if ( '' === $image ) {
+		return '';
+	}
+
+	if ( '' !== $url ) {
+		return sprintf(
+			'<a class="vl-item__thumb" href="%s" tabindex="-1" aria-hidden="true">%s</a>',
+			esc_url( $url ),
+			wp_kses_post( $image )
+		);
+	}
+
+	return '<span class="vl-item__thumb">' . wp_kses_post( $image ) . '</span>';
+}
+
+/**
  * Безопасный редирект-URL из запроса.
  *
  * @param string $fallback Куда вести, если ничего не передано.
